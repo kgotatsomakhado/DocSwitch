@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="DocSwitch — simple, fast and private file conversion."
+    />
+    <title>DocSwitch — Convert files, simply.</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" type="image/jpeg" href="favicon.jpg" />
+  </head>
+
+  <body>
+    <!-- ============================================================
+     DOCSWITCH — ANIMATED ATMOSPHERIC BACKGROUND
+     ============================================================ -->
+
+    <div class="ambient-background" aria-hidden="true">
+      <canvas id="ambient-canvas"></canvas>
+
+      <div class="ambient-glow ambient-glow-blue"></div>
+      <div class="ambient-glow ambient-glow-violet"></div>
+
+      <div class="ambient-vignette"></div>
+    </div>
+    <!-- Atmospheric background -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+
+    <!-- ==========================================================
+       NAVIGATION
+       ========================================================== -->
+    <header class="navbar">
+      <div class="nav-container">
+        <a href="#" class="brand" aria-label="DocSwitch home">
+          <svg
+            class="brand-icon"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="M14 3v5h5M9 13h6M9 17h6"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+
+          <span>DocSwitch</span>
+        </a>
+
+        <nav class="nav-links" aria-label="Main navigation">
+          <a href="#how-it-works" class="nav-link">How it works</a>
+          <a href="#formats" class="nav-link">Formats</a>
+          <a href="#why-docswitch" class="nav-link">Why DocSwitch</a>
+        </nav>
+
+        <a href="#converter" class="nav-convert">Convert <span>↗</span></a>
+      </div>
+    </header>
+
+    <main>
+      <!-- ==========================================================
+         HERO
+         ========================================================== -->
+      <section class="hero-section" id="converter">
+        <div class="eyebrow">
+          <span class="eyebrow-dot"></span>
+          SIMPLE FILE CONVERSION
+        </div>
+
+        <h1 class="hero-title">
+          Convert files,<br />
+          <span>without the complexity.</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Upload a file, choose your format and download the result. No account.
+          No unnecessary steps.
+        </p>
+
+        <!-- ========================================================
+           CONVERTER
+           ======================================================== -->
+        <div class="converter-card">
+          <!-- EMPTY -->
+          <div class="ui-state active" id="state-empty">
+            <div
+              class="drop-zone"
+              id="drop-zone"
+              tabindex="0"
+              role="button"
+              aria-label="Upload a file"
+            >
+              <div class="drop-zone-icon-wrapper">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 16V4M12 4l-4 4M12 4l4 4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+
+              <div class="drop-zone-text">
+                <span class="primary-text"> Drop your file here </span>
+
+                <span class="secondary-text">
+                  or
+                  <button type="button" class="link-btn" id="browse-trigger">
+                    browse your device
+                  </button>
+                </span>
+              </div>
+
+              <div class="supported-badges">
+                <span class="badge">PDF</span>
+                <span class="badge">DOCX</span>
+                <span class="badge">PPTX</span>
+                <span class="badge">JPG</span>
+                <span class="badge">PNG</span>
+                <span class="badge">WEBP</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- SELECTED -->
+          <div class="ui-state" id="state-selected">
+            <div class="file-card">
+              <div class="file-info">
+                <div class="file-icon-box">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 3h8l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                    <path
+                      d="M14 3v5h5"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                    />
+                  </svg>
+                </div>
+
+                <div class="file-details">
+                  <span class="file-name" id="selected-file-name">
+                    filename.pdf
+                  </span>
+
+                  <span class="file-size" id="selected-file-size"> 0 KB </span>
+                </div>
+
+                <button
+                  class="icon-btn"
+                  id="btn-remove-file"
+                  type="button"
+                  aria-label="Remove selected file"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 6l12 12M18 6L6 18"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <div class="conversion-controls">
+                <div class="select-group">
+                  <label class="control-label" for="target-format-select">
+                    Convert to
+                  </label>
+
+                  <div class="custom-select-wrapper">
+                    <select class="custom-select" id="target-format-select">
+                      <option value="pdf">PDF</option>
+                      <option value="docx">DOCX</option>
+                    </select>
+
+                    <svg
+                      class="select-arrow"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="m6 9 6 6 6-6"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </div>
+                </div>
+
+                <button
+                  class="btn-primary btn-large"
+                  id="btn-start-convert"
+                  type="button"
+                >
+                  Convert file
+                  <span>→</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONVERTING -->
+          <div class="ui-state" id="state-converting">
+            <div class="status-card">
+              <div class="spinner-wrapper">
+                <div class="pulse-spinner"></div>
+              </div>
+
+              <div class="status-content">
+                <h2 class="status-title">Converting your file</h2>
+
+                <p class="status-sub">
+                  <span id="converting-file-name"> filename.pdf </span>
+                </p>
+              </div>
+
+              <div class="progress-bar-container">
+                <div
+                  class="progress-bar-fill"
+                  id="conversion-progress-bar"
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUCCESS -->
+          <div class="ui-state" id="state-success">
+            <div class="status-card">
+              <div class="success-icon-wrapper">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="m5 12 4 4L19 6"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+
+              <div class="status-content">
+                <h2 class="status-title">Your file is ready</h2>
+
+                <p class="status-sub" id="success-file-details">
+                  converted.pdf
+                </p>
+              </div>
+
+              <div class="action-stack">
+                <a class="btn-primary" id="btn-download-result" href="#">
+                  Download file
+                  <span>↓</span>
+                </a>
+
+                <button
+                  class="btn-tertiary"
+                  id="btn-reset-converter"
+                  type="button"
+                >
+                  Convert another file
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ERROR -->
+          <div class="ui-state" id="state-error">
+            <div class="status-card">
+              <div class="error-icon-wrapper">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 8v5M12 17h.01"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  />
+                </svg>
+              </div>
+
+              <div class="status-content">
+                <h2 class="status-title">Something went wrong</h2>
+
+                <p class="status-sub" id="error-message-text">
+                  We couldn't process that file.
+                </p>
+              </div>
+
+              <div class="action-stack">
+                <button class="btn-primary" id="btn-error-retry" type="button">
+                  Try again
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="security-note" id="security">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+
+          <span>
+            Your files are securely processed and automatically removed after
+            conversion.
+          </span>
+        </div>
+
+        <input
+          type="file"
+          id="file-input"
+          class="visually-hidden"
+          accept=".pdf,.docx,.doc,.txt,.rtf,.pptx,.ppt,.jpg,.jpeg,.png,.webp"
+        />
+
+        <div id="live-region" class="visually-hidden" aria-live="polite"></div>
+      </section>
+
+      <!-- ==========================================================
+         HOW IT WORKS
+         ========================================================== -->
+      <section class="editorial-section process-section" id="how-it-works">
+        <div class="section-intro">
+          <span class="section-kicker"> HOW IT WORKS </span>
+
+          <h2>
+            Three steps.<br />
+            <span>No complexity.</span>
+          </h2>
+
+          <p>
+            DocSwitch keeps file conversion exactly where it should be: simple.
+          </p>
+        </div>
+
+        <div class="process-timeline">
+          <div class="process-line"></div>
+
+          <article class="process-step">
+            <div class="process-number">01</div>
+
+            <div class="process-copy">
+              <h3>Upload</h3>
+
+              <p>
+                Drop your file into DocSwitch or browse your device. We support
+                everyday documents, presentations and images.
+              </p>
+            </div>
+
+            <div class="process-arrow">↘</div>
+          </article>
+
+          <article class="process-step">
+            <div class="process-number">02</div>
+
+            <div class="process-copy">
+              <h3>Choose</h3>
+
+              <p>
+                Select the format you want your file converted to. No
+                complicated settings or unnecessary configuration.
+              </p>
+            </div>
+
+            <div class="process-arrow">↘</div>
+          </article>
+
+          <article class="process-step">
+            <div class="process-number">03</div>
+
+            <div class="process-copy">
+              <h3>Download</h3>
+
+              <p>
+                Your converted file is ready. Download it and get back to what
+                you were doing.
+              </p>
+            </div>
+
+            <div class="process-arrow final-arrow">↗</div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ==========================================================
+         FORMATS
+         ========================================================== -->
+      <section class="editorial-section formats-section" id="formats">
+        <div class="formats-heading-row">
+          <div>
+            <span class="section-kicker"> SUPPORTED FORMATS </span>
+
+            <h2>
+              Built for the files<br />
+              <span>you actually use.</span>
+            </h2>
+          </div>
+
+          <p>
+            Start with the formats you work with every day. More can be added as
+            DocSwitch evolves.
+          </p>
+        </div>
+
+        <!-- ============================================================
+     DOCSWITCH FORMAT MARQUEE
+     ============================================================ -->
+
+        <section class="format-marquee" aria-label="Supported file formats">
+          <!-- Row 1 -->
+          <div class="format-row">
+            <div class="format-track" data-direction="left">
+              <div class="format-set">
+                <span>PDF</span>
+                <i>•</i>
+                <span>DOCX</span>
+                <i>•</i>
+                <span>DOC</span>
+                <i>•</i>
+                <span>TXT</span>
+                <i>•</i>
+                <span>RTF</span>
+                <i>•</i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 2 -->
+          <div class="format-row">
+            <div class="format-track" data-direction="right">
+              <div class="format-set">
+                <span>PPTX</span>
+                <i>•</i>
+                <span>PPT</span>
+                <i>•</i>
+                <span>JPG</span>
+                <i>•</i>
+                <span>PNG</span>
+                <i>•</i>
+                <span>WEBP</span>
+                <i>•</i>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ==========================================================
+         WHY DOCSWITCH
+         ========================================================== -->
+      <section class="editorial-section why-section" id="why-docswitch">
+        <div class="why-header">
+          <span class="section-kicker"> WHY DOCSWITCH </span>
+
+          <h2>
+            Less friction.<br />
+            <span>More getting things done.</span>
+          </h2>
+        </div>
+
+        <div class="feature-list">
+          <div class="feature-row">
+            <span class="feature-index">01</span>
+
+            <div class="feature-title">NO ACCOUNT</div>
+
+            <p>
+              Convert files without creating another account or remembering
+              another password.
+            </p>
+          </div>
+
+          <div class="feature-row">
+            <span class="feature-index">02</span>
+
+            <div class="feature-title">SIMPLE BY DESIGN</div>
+
+            <p>No dashboards. No clutter. Just upload, choose and download.</p>
+          </div>
+
+          <div class="feature-row">
+            <span class="feature-index">03</span>
+
+            <div class="feature-title">PRIVACY FIRST</div>
+
+            <p>
+              Your files are processed for conversion and designed to be
+              automatically removed afterwards.
+            </p>
+          </div>
+
+          <div class="feature-row">
+            <span class="feature-index">04</span>
+
+            <div class="feature-title">FAST WORKFLOW</div>
+
+            <p>
+              Everything is built around getting you from source file to
+              finished file with minimal friction.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================================
+         FAQ
+         ========================================================== -->
+      <section class="editorial-section faq-section">
+        <div class="faq-heading">
+          <span class="section-kicker"> QUESTIONS </span>
+
+          <h2>
+            Before you<br />
+            <span>convert.</span>
+          </h2>
+        </div>
+
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary>
+              <span>What file types can I convert?</span>
+              <span class="faq-plus">+</span>
+            </summary>
+
+            <p>
+              DocSwitch currently supports PDF, DOCX, DOC, TXT, RTF, PPTX, PPT,
+              JPG, JPEG, PNG and WEBP as input formats.
+            </p>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>Is there a file size limit?</span>
+              <span class="faq-plus">+</span>
+            </summary>
+
+            <p>Files are currently limited to 25 MB per conversion.</p>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>Do I need an account?</span>
+              <span class="faq-plus">+</span>
+            </summary>
+
+            <p>
+              No. DocSwitch is designed to let you convert files without
+              requiring an account.
+            </p>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>What happens to my files?</span>
+              <span class="faq-plus">+</span>
+            </summary>
+
+            <p>
+              Files are processed for conversion and are intended to be
+              automatically removed after processing.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <!-- ==========================================================
+         FINAL CTA
+         ========================================================== -->
+      <section class="final-cta">
+        <div class="cta-kicker">READY WHEN YOU ARE</div>
+
+        <h2>
+          Convert your next<br />
+          file in seconds.
+        </h2>
+
+        <a href="#converter" class="btn-primary cta-button">
+          Convert a file
+          <span>↑</span>
+        </a>
+      </section>
+    </main>
+
+    <!-- ==========================================================
+       FOOTER
+       ========================================================== -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-top">
+          <div class="footer-brand">
+            <a href="#" class="brand footer-logo">
+              <svg
+                class="brand-icon"
+                width="25"
+                height="25"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M14 3v5h5M9 13h6M9 17h6"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+
+              <span>DocSwitch</span>
+            </a>
+
+            <p>Convert without the complexity.</p>
+          </div>
+
+          <div class="footer-navigation">
+            <div class="footer-column">
+              <span class="footer-column-title"> PRODUCT </span>
+
+              <a href="#converter">Converter</a>
+              <a href="#how-it-works">How it works</a>
+              <a href="#formats">Formats</a>
+            </div>
+
+            <div class="footer-column">
+              <span class="footer-column-title"> COMPANY </span>
+
+              <a href="#why-docswitch">Why DocSwitch</a>
+              <a href="#">Privacy</a>
+              <a href="#">Terms</a>
+            </div>
+
+            <div class="footer-column">
+              <span class="footer-column-title"> SUPPORT </span>
+
+              <a href="#faq">FAQ</a>
+              <a href="mailto:support@docswitch.com">Contact</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-wordmark">DOC<span>SWITCH</span></div>
+
+        <div class="footer-bottom">
+          <p>© 2026 DocSwitch. All rights reserved.</p>
+
+          <p>Built for simplicity by Shumba Makhado.</p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
