@@ -17,7 +17,11 @@
  *      ↓
  * Blob
  *      ↓
- * Object URL
+ * Success state
+ *      ↓
+ * User clicks Download
+ *      ↓
+ * Temporary Object URL
  *      ↓
  * Browser download
  *
@@ -63,13 +67,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   let currentFile = null;
-
   let currentOutputBlob = null;
-
   let currentOutputFilename = null;
-
-  let currentDownloadUrl = null;
-
   let conversionInProgress = false;
 
   // ==========================================================
@@ -85,19 +84,15 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const dropZone = document.getElementById("drop-zone");
-
   const fileInput = document.getElementById("file-input");
-
   const browseTrigger = document.getElementById("browse-trigger");
 
   const selectedFileName = document.getElementById("selected-file-name");
-
   const selectedFileSize = document.getElementById("selected-file-size");
 
   const targetFormatSelect = document.getElementById("target-format-select");
 
   const btnRemoveFile = document.getElementById("btn-remove-file");
-
   const btnStartConvert = document.getElementById("btn-start-convert");
 
   const convertingFileName = document.getElementById("converting-file-name");
@@ -113,7 +108,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const errorMessageText = document.getElementById("error-message-text");
 
   const btnErrorRetry = document.getElementById("btn-error-retry");
-
   const liveRegion = document.getElementById("live-region");
 
   // ==========================================================
@@ -125,6 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("========================================");
   console.log("API:", API_ENDPOINT);
   console.log("Communication: FETCH");
+  console.log("Download mode: USER-TRIGGERED BLOB");
   console.log("========================================");
 
   // ==========================================================
@@ -162,15 +157,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const active = key === targetState;
 
-      state.classList.toggle("active", active);
-
       /*
-       * Use inert so inactive panels cannot be interacted with.
+       * Before making a state inert, remove focus from anything
+       * inside that state.
        *
-       * Do not use aria-hidden here.
-       * This avoids the browser warning you previously saw
-       * when focus remained inside the hidden upload panel.
+       * This prevents the browser warning about focused elements
+       * inside hidden/inert UI.
        */
+      if (!active && state.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+
+      state.classList.toggle("active", active);
       state.inert = !active;
     });
 
@@ -245,16 +243,51 @@ document.addEventListener("DOMContentLoaded", () => {
     return filename.substring(0, lastDot);
   }
 
-  function releaseDownloadUrl() {
-    if (!currentDownloadUrl) {
-      return;
+  /**
+   * Extract the filename returned by FastAPI.
+   *
+   * Supports:
+   *   filename*=UTF-8''file.pdf
+   *   filename="file.pdf"
+   *   filename=file.pdf
+   */
+  function getFilenameFromDisposition(contentDisposition) {
+    if (!contentDisposition) {
+      return null;
     }
 
-    console.log("Releasing object URL:", currentDownloadUrl);
+    // RFC 5987 / UTF-8 form
+    const utf8Match = contentDisposition.match(
+      /filename\*\s*=\s*UTF-8''([^;]+)/i,
+    );
 
-    URL.revokeObjectURL(currentDownloadUrl);
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(
+          utf8Match[1].trim().replace(/^["']|["']$/g, ""),
+        );
+      } catch (error) {
+        console.warn("Unable to decode UTF-8 filename:", error);
 
-    currentDownloadUrl = null;
+        return utf8Match[1].trim().replace(/^["']|["']$/g, "");
+      }
+    }
+
+    // Quoted form
+    const quotedMatch = contentDisposition.match(/filename\s*=\s*"([^"]+)"/i);
+
+    if (quotedMatch?.[1]) {
+      return quotedMatch[1].trim();
+    }
+
+    // Plain form
+    const plainMatch = contentDisposition.match(/filename\s*=\s*([^;]+)/i);
+
+    if (plainMatch?.[1]) {
+      return plainMatch[1].trim().replace(/^["']|["']$/g, "");
+    }
+
+    return null;
   }
 
   function setProgress(percent) {
@@ -265,7 +298,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
 
     progressBar.style.width = `${safePercent}%`;
-
     progressBar.setAttribute("aria-valuenow", String(safePercent));
   }
 
@@ -279,6 +311,18 @@ document.addEventListener("DOMContentLoaded", () => {
     btnStartConvert.setAttribute("aria-busy", String(isLoading));
 
     btnStartConvert.classList.toggle("is-loading", isLoading);
+  }
+
+  function setDownloadButtonState(enabled) {
+    if (!btnDownloadResult) {
+      return;
+    }
+
+    btnDownloadResult.disabled = !enabled;
+
+    btnDownloadResult.setAttribute("aria-disabled", String(!enabled));
+
+    btnDownloadResult.classList.toggle("is-disabled", !enabled);
   }
 
   // ==========================================================
@@ -412,7 +456,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setActiveState("error");
-
     announce(message);
   }
 
@@ -462,6 +505,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
+  // CLEAR OUTPUT
+  // ==========================================================
+
+  function clearCurrentOutput() {
+    currentOutputBlob = null;
+    currentOutputFilename = null;
+
+    setDownloadButtonState(false);
+
+    console.log("Previous conversion result cleared.");
+  }
+
+  // ==========================================================
   // FILE SELECTION
   // ==========================================================
 
@@ -479,21 +535,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Clear previous output.
-
-    releaseDownloadUrl();
-
-    currentOutputBlob = null;
-    currentOutputFilename = null;
-
-    if (btnDownloadResult) {
-      btnDownloadResult.removeAttribute("href");
-      btnDownloadResult.removeAttribute("download");
-
-      btnDownloadResult.setAttribute("aria-disabled", "true");
-
-      btnDownloadResult.style.pointerEvents = "none";
-    }
+    clearCurrentOutput();
 
     currentFile = file;
 
@@ -507,10 +549,13 @@ document.addEventListener("DOMContentLoaded", () => {
       selectedFileSize.textContent = formatBytes(file.size);
     }
 
+    if (convertingFileName) {
+      convertingFileName.textContent = file.name;
+    }
+
     configureTargetFormat(extension);
 
     setProgress(0);
-
     setActiveState("selected");
 
     announce(`${file.name} selected. Ready to convert.`);
@@ -554,10 +599,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     dropZone.addEventListener("click", (event) => {
-      /*
-       * The browse button has its own handler.
-       * Prevent the parent from firing a second click.
-       */
       if (event.target.closest("#browse-trigger")) {
         return;
       }
@@ -575,6 +616,14 @@ document.addEventListener("DOMContentLoaded", () => {
           fileInput.click();
         }
       }
+    });
+
+    dropZone.addEventListener("pointermove", (event) => {
+      const rect = dropZone.getBoundingClientRect();
+
+      dropZone.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`);
+
+      dropZone.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`);
     });
   }
 
@@ -630,10 +679,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (btnStartConvert) {
     btnStartConvert.addEventListener("click", async (event) => {
-      /*
-       * This is a real button.
-       * Prevent default form/browser behavior.
-       */
       event.preventDefault();
       event.stopPropagation();
 
@@ -641,18 +686,18 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("CONVERT BUTTON CLICKED");
       console.log("========================================");
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // DOUBLE REQUEST PROTECTION
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       if (conversionInProgress) {
         console.warn("Conversion already running.");
         return;
       }
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // FILE CHECK
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       if (!currentFile) {
         showError("Please select a file first.");
@@ -670,18 +715,18 @@ document.addEventListener("DOMContentLoaded", () => {
         size: currentFile.size,
       });
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // TARGET VALIDATION
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       if (!ALLOWED_OUTPUT_FORMATS.includes(targetFormat)) {
         showError("Please select either PDF or DOCX as the output format.");
         return;
       }
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // SAME FORMAT
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       if (sourceFormat === targetFormat) {
         showError(
@@ -690,9 +735,9 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // CAPABILITY
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       if (!isConversionSupported(sourceFormat, targetFormat)) {
         showError(
@@ -701,9 +746,15 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
+      // CLEAR PREVIOUS RESULT
+      // --------------------------------------------------
+
+      clearCurrentOutput();
+
+      // --------------------------------------------------
       // LOCK UI
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       conversionInProgress = true;
 
@@ -714,16 +765,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       setProgress(5);
-
       setActiveState("converting");
 
       announce(
         `Converting ${currentFile.name} to ${targetFormat.toUpperCase()}.`,
       );
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // FORM DATA
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       const formData = new FormData();
 
@@ -733,9 +783,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log("FormData prepared.");
 
-      // ----------------------------------------------------
+      // --------------------------------------------------
       // TIMEOUT
-      // ----------------------------------------------------
+      // --------------------------------------------------
 
       const controller = new AbortController();
 
@@ -745,9 +795,9 @@ document.addEventListener("DOMContentLoaded", () => {
         controller.abort();
       }, REQUEST_TIMEOUT_MS);
 
-      // ----------------------------------------------------
-      // FETCH POST
-      // ----------------------------------------------------
+      // --------------------------------------------------
+      // FETCH
+      // --------------------------------------------------
 
       try {
         console.log("FETCH POST →", API_ENDPOINT);
@@ -762,28 +812,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
         clearTimeout(timeoutId);
 
-        // --------------------------------------------------
-        // LOG RESPONSE
-        // --------------------------------------------------
+        // ------------------------------------------------
+        // RESPONSE LOG
+        // ------------------------------------------------
+
+        const contentType = response.headers.get("Content-Type") || "";
+
+        const contentDisposition =
+          response.headers.get("Content-Disposition") || "";
+
+        const contentLength = response.headers.get("Content-Length");
 
         console.log("FASTAPI RESPONSE:", {
           status: response.status,
           ok: response.ok,
-          contentType: response.headers.get("Content-Type"),
-          contentLength: response.headers.get("Content-Length"),
-          contentDisposition: response.headers.get("Content-Disposition"),
+          contentType,
+          contentLength,
+          contentDisposition,
         });
 
-        // --------------------------------------------------
+        // ------------------------------------------------
         // HTTP ERROR
-        // --------------------------------------------------
+        // ------------------------------------------------
 
         if (!response.ok) {
           let message = `Conversion failed (HTTP ${response.status}).`;
 
           try {
-            const contentType = response.headers.get("Content-Type") || "";
-
             if (contentType.toLowerCase().includes("application/json")) {
               const errorData = await response.json();
 
@@ -810,9 +865,9 @@ document.addEventListener("DOMContentLoaded", () => {
           throw new Error(message);
         }
 
-        // --------------------------------------------------
-        // SUCCESS
-        // --------------------------------------------------
+        // ------------------------------------------------
+        // BINARY RESPONSE
+        // ------------------------------------------------
 
         console.log("HTTP 200 received. Reading binary response...");
 
@@ -825,9 +880,9 @@ document.addEventListener("DOMContentLoaded", () => {
           size: responseBlob.size,
         });
 
-        // --------------------------------------------------
-        // VERIFY FILE
-        // --------------------------------------------------
+        // ------------------------------------------------
+        // VERIFY BLOB
+        // ------------------------------------------------
 
         if (!(responseBlob instanceof Blob)) {
           throw new Error("The backend response was not a valid Blob.");
@@ -837,56 +892,48 @@ document.addEventListener("DOMContentLoaded", () => {
           throw new Error("The backend returned an empty file.");
         }
 
-        // --------------------------------------------------
+        // ------------------------------------------------
         // STORE RESULT
-        // --------------------------------------------------
+        // ------------------------------------------------
 
         currentOutputBlob = responseBlob;
 
-        currentOutputFilename = `${getBaseName(
-          currentFile.name,
-        )}.${targetFormat}`;
+        const serverFilename = getFilenameFromDisposition(contentDisposition);
 
-        console.log("Output filename:", currentOutputFilename);
+        currentOutputFilename =
+          serverFilename || `${getBaseName(currentFile.name)}.${targetFormat}`;
 
-        // --------------------------------------------------
-        // CREATE OBJECT URL
-        // --------------------------------------------------
+        console.log("Converted filename:", currentOutputFilename);
 
-        releaseDownloadUrl();
+        console.log("Converted blob:", {
+          size: currentOutputBlob.size,
+          type: currentOutputBlob.type,
+        });
 
-        currentDownloadUrl = URL.createObjectURL(currentOutputBlob);
+        // ------------------------------------------------
+        // ACTIVATE DOWNLOAD BUTTON
+        //
+        // IMPORTANT:
+        // No href.
+        // No permanent Object URL.
+        // No automatic download.
+        //
+        // The Blob stays in memory until the user
+        // explicitly clicks the button.
+        // ------------------------------------------------
 
-        console.log("Object URL created:", currentDownloadUrl);
-
-        // --------------------------------------------------
-        // ACTIVATE DOWNLOAD
-        // --------------------------------------------------
+        setDownloadButtonState(true);
 
         if (btnDownloadResult) {
-          btnDownloadResult.href = currentDownloadUrl;
-
-          btnDownloadResult.download = currentOutputFilename;
-
-          btnDownloadResult.setAttribute("download", currentOutputFilename);
-
           btnDownloadResult.setAttribute(
             "aria-label",
             `Download ${currentOutputFilename}`,
           );
-
-          btnDownloadResult.removeAttribute("aria-disabled");
-
-          btnDownloadResult.style.pointerEvents = "auto";
-
-          btnDownloadResult.style.cursor = "pointer";
-
-          console.log("Download control activated.");
         }
 
-        // --------------------------------------------------
+        // ------------------------------------------------
         // SUCCESS DETAILS
-        // --------------------------------------------------
+        // ------------------------------------------------
 
         if (successFileDetails) {
           successFileDetails.textContent = `${currentOutputFilename} · ${formatBytes(
@@ -894,9 +941,9 @@ document.addEventListener("DOMContentLoaded", () => {
           )}`;
         }
 
-        // --------------------------------------------------
+        // ------------------------------------------------
         // SUCCESS STATE
-        // --------------------------------------------------
+        // ------------------------------------------------
 
         setProgress(100);
 
@@ -914,8 +961,9 @@ document.addEventListener("DOMContentLoaded", () => {
           filename: currentOutputFilename,
           bytes: currentOutputBlob.size,
           mimeType: currentOutputBlob.type,
-          objectUrl: currentDownloadUrl,
         });
+
+        console.log("Download button is now ready.");
 
         console.log("========================================");
       } catch (error) {
@@ -929,27 +977,87 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.error("========================================");
 
+        // ------------------------------------------------
+        // ABORT
+        // ------------------------------------------------
+
         if (error?.name === "AbortError") {
           showError(
             "The conversion request timed out. Please try again with a smaller or simpler file.",
           );
-        } else if (error instanceof TypeError) {
+        }
+
+        // ------------------------------------------------
+        // NETWORK / CORS
+        // ------------------------------------------------
+        else if (error instanceof TypeError) {
           showError(
-            "Could not communicate with the DocSwitch backend. Check that FastAPI is running on http://127.0.0.1:8000 and that CORS allows this frontend.",
+            "Could not communicate with the DocSwitch backend. Check that FastAPI is running at http://127.0.0.1:8000 and that CORS allows this frontend.",
           );
-        } else {
+        }
+
+        // ------------------------------------------------
+        // NORMAL ERROR
+        // ------------------------------------------------
+        else {
           showError(error?.message || "Unable to convert the file.");
         }
+
+        // Make sure no stale result remains
+        clearCurrentOutput();
       } finally {
         conversionInProgress = false;
 
         setConvertButtonLoading(false);
       }
     });
+
+    // ======================================================
+    // CONVERT BUTTON — CURSOR LIGHT
+    // ======================================================
+
+    btnStartConvert.addEventListener("pointermove", (event) => {
+      const rect = btnStartConvert.getBoundingClientRect();
+
+      btnStartConvert.style.setProperty(
+        "--button-x",
+        `${event.clientX - rect.left}px`,
+      );
+
+      btnStartConvert.style.setProperty(
+        "--button-y",
+        `${event.clientY - rect.top}px`,
+      );
+    });
   }
 
   // ==========================================================
   // DOWNLOAD
+  // ==========================================================
+  //
+  // THIS IS THE IMPORTANT FIX.
+  //
+  // The UI control is a real <button>.
+  //
+  // We do not:
+  //   - assign href
+  //   - use download="" on the button
+  //   - create the download during fetch completion
+  //   - maintain a permanent object URL
+  //
+  // Instead:
+  //   User click
+  //      ↓
+  //   create temporary URL
+  //      ↓
+  //   create temporary <a>
+  //      ↓
+  //   click <a>
+  //      ↓
+  //   remove <a>
+  //      ↓
+  //   revoke URL
+  //
   // ==========================================================
 
   if (btnDownloadResult) {
@@ -958,36 +1066,74 @@ document.addEventListener("DOMContentLoaded", () => {
       event.stopPropagation();
 
       console.log("========================================");
-      console.log("DOWNLOAD CLICKED");
-      console.log({
-        filename: currentOutputFilename,
-        size: currentOutputBlob?.size || 0,
-        url: currentDownloadUrl,
-      });
+      console.log("DOCSWITCH DOWNLOAD CLICKED");
       console.log("========================================");
 
-      if (!currentOutputBlob || !currentDownloadUrl) {
-        console.error("Download attempted without a valid result.");
+      if (!currentOutputBlob || !currentOutputFilename) {
+        console.error("No converted file is currently available.");
+
+        announce("No converted file is currently available.");
+
         return;
       }
 
-      /*
-       * PROGRAMMATIC DOWNLOAD
-       *
-       * Creating a temporary anchor and clicking it programmatically
-       * is more reliable than relying on the browser to resolve a
-       * dynamically mutated anchor tag, especially when the element
-       * originally had href="#" or conflicting ARIA roles.
-       */
-      const tempLink = document.createElement("a");
-      tempLink.href = currentDownloadUrl;
-      tempLink.download = currentOutputFilename || "converted-file";
-      tempLink.style.display = "none";
-      document.body.appendChild(tempLink);
-      tempLink.click();
-      document.body.removeChild(tempLink);
+      console.log({
+        filename: currentOutputFilename,
+        bytes: currentOutputBlob.size,
+        mimeType: currentOutputBlob.type,
+      });
 
-      announce(`Downloading ${currentOutputFilename}.`);
+      try {
+        // ----------------------------------------------
+        // CREATE DOWNLOAD URL ONLY NOW
+        // ----------------------------------------------
+
+        const downloadUrl = URL.createObjectURL(currentOutputBlob);
+
+        console.log("Temporary download URL created:", downloadUrl);
+
+        // ----------------------------------------------
+        // CREATE TEMPORARY ANCHOR
+        // ----------------------------------------------
+
+        const tempLink = document.createElement("a");
+
+        tempLink.href = downloadUrl;
+
+        tempLink.download = currentOutputFilename;
+
+        tempLink.style.display = "none";
+
+        // ----------------------------------------------
+        // APPEND → CLICK → REMOVE
+        // ----------------------------------------------
+
+        document.body.appendChild(tempLink);
+
+        tempLink.click();
+
+        tempLink.remove();
+
+        // ----------------------------------------------
+        // REVOKE AFTER BROWSER HAS STARTED DOWNLOAD
+        // ----------------------------------------------
+
+        setTimeout(() => {
+          URL.revokeObjectURL(downloadUrl);
+
+          console.log("Temporary download URL revoked.");
+        }, 1000);
+
+        announce(`Downloading ${currentOutputFilename}.`);
+
+        console.log("Download triggered successfully.");
+
+        console.log("========================================");
+      } catch (error) {
+        console.error("Download failed:", error);
+
+        announce("The download could not be started. Please try again.");
+      }
     });
   }
 
@@ -1000,15 +1146,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    console.log("Resetting converter.");
+    console.log("Resetting DocSwitch converter.");
 
     currentFile = null;
-
     currentOutputBlob = null;
-
     currentOutputFilename = null;
-
-    releaseDownloadUrl();
 
     if (fileInput) {
       fileInput.value = "";
@@ -1022,20 +1164,18 @@ document.addEventListener("DOMContentLoaded", () => {
       selectedFileSize.textContent = "0 KB";
     }
 
+    if (convertingFileName) {
+      convertingFileName.textContent = "filename.pdf";
+    }
+
     if (successFileDetails) {
       successFileDetails.textContent = "converted.pdf";
     }
 
+    setDownloadButtonState(false);
+
     if (btnDownloadResult) {
-      btnDownloadResult.removeAttribute("href");
-
-      btnDownloadResult.removeAttribute("download");
-
-      btnDownloadResult.setAttribute("aria-disabled", "true");
-
-      btnDownloadResult.style.pointerEvents = "none";
-
-      btnDownloadResult.style.cursor = "default";
+      btnDownloadResult.removeAttribute("aria-label");
     }
 
     setProgress(0);
@@ -1123,26 +1263,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // INITIAL DOWNLOAD STATE
   // ==========================================================
 
-  if (btnDownloadResult) {
-    btnDownloadResult.setAttribute("aria-disabled", "true");
-
-    btnDownloadResult.style.pointerEvents = "none";
-  }
+  setDownloadButtonState(false);
 
   // ==========================================================
   // INITIAL STATE
   // ==========================================================
 
   setActiveState("empty");
-
   setProgress(0);
 
   console.log("DocSwitch converter ready.");
 });
 
-// ============================================================
-// FORMAT MARQUEE
-// ============================================================
+/**
+ * ============================================================
+ * FORMAT MARQUEE
+ * ============================================================
+ */
 
 function initializeFormatMarquee() {
   const tracks = document.querySelectorAll(".format-track");
@@ -1205,9 +1342,11 @@ window.addEventListener("resize", () => {
   }, 150);
 });
 
-// ============================================================
-// DOCSWITCH — CINEMATIC STARFIELD
-// ============================================================
+/**
+ * ============================================================
+ * DOCSWITCH — CINEMATIC STARFIELD
+ * ============================================================
+ */
 
 document.addEventListener("DOMContentLoaded", () => {
   const ambientCanvas = document.getElementById("ambient-canvas");
@@ -1244,7 +1383,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     width = window.innerWidth;
-
     height = window.innerHeight;
 
     ambientCanvas.width = width * dpr;
@@ -1373,7 +1511,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   resizeCanvas();
-
   createStars();
 
   window.addEventListener(
@@ -1390,50 +1527,4 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!reducedMotion) {
     requestAnimationFrame(animate);
   }
-});
-
-// ============================================================
-// DROPZONE — CURSOR LIGHT
-// ============================================================
-
-document.addEventListener("DOMContentLoaded", () => {
-  const dropZone = document.getElementById("drop-zone");
-
-  if (!dropZone) {
-    return;
-  }
-
-  dropZone.addEventListener("pointermove", (event) => {
-    const rect = dropZone.getBoundingClientRect();
-
-    dropZone.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`);
-
-    dropZone.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`);
-  });
-});
-
-// ============================================================
-// CONVERT CONTROL — CURSOR LIGHT
-// ============================================================
-
-document.addEventListener("DOMContentLoaded", () => {
-  const btnStartConvert = document.getElementById("btn-start-convert");
-
-  if (!btnStartConvert) {
-    return;
-  }
-
-  btnStartConvert.addEventListener("pointermove", (event) => {
-    const rect = btnStartConvert.getBoundingClientRect();
-
-    btnStartConvert.style.setProperty(
-      "--button-x",
-      `${event.clientX - rect.left}px`,
-    );
-
-    btnStartConvert.style.setProperty(
-      "--button-y",
-      `${event.clientY - rect.top}px`,
-    );
-  });
 });
