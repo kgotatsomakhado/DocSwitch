@@ -953,36 +953,39 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   if (btnDownloadResult) {
-    btnDownloadResult.addEventListener("click", () => {
+    btnDownloadResult.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
       console.log("========================================");
-
       console.log("DOWNLOAD CLICKED");
-
       console.log({
         filename: currentOutputFilename,
         size: currentOutputBlob?.size || 0,
         url: currentDownloadUrl,
       });
-
       console.log("========================================");
-
-      /*
-       * IMPORTANT:
-       *
-       * There is intentionally NO preventDefault().
-       *
-       * The browser should perform the native
-       * anchor download using:
-       *
-       * href="blob:..."
-       * download="file.pdf"
-       */
 
       if (!currentOutputBlob || !currentDownloadUrl) {
         console.error("Download attempted without a valid result.");
-
         return;
       }
+
+      /*
+       * PROGRAMMATIC DOWNLOAD
+       *
+       * Creating a temporary anchor and clicking it programmatically
+       * is more reliable than relying on the browser to resolve a
+       * dynamically mutated anchor tag, especially when the element
+       * originally had href="#" or conflicting ARIA roles.
+       */
+      const tempLink = document.createElement("a");
+      tempLink.href = currentDownloadUrl;
+      tempLink.download = currentOutputFilename || "converted-file";
+      tempLink.style.display = "none";
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      document.body.removeChild(tempLink);
 
       announce(`Downloading ${currentOutputFilename}.`);
     });
