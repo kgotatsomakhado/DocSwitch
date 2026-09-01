@@ -13,7 +13,11 @@ ensure_directories()
 
 app = FastAPI(
     title="DocSwitch API",
-    description="Document conversion API",
+    description=(
+        "DocSwitch file conversion API. "
+        "Supports PDF, DOCX, DOC, TXT, RTF, PPTX, PPT, "
+        "JPG, JPEG, PNG and WEBP inputs with PDF and DOCX outputs."
+    ),
     version="1.0.0",
 )
 
@@ -27,6 +31,8 @@ app.add_middleware(
     allow_origins=[
         "http://127.0.0.1:5500",
         "http://localhost:5500",
+        "http://127.0.0.1:5501",
+        "http://localhost:5501",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -45,7 +51,7 @@ app.include_router(
 
 
 # ============================================================
-# HEALTH / ROOT
+# ROOT
 # ============================================================
 
 @app.get("/")
@@ -57,8 +63,39 @@ async def root():
     }
 
 
+# ============================================================
+# HEALTH
+# ============================================================
+
 @app.get("/health")
 async def health():
     return {
         "status": "healthy",
+    }
+
+
+# ============================================================
+# SUPPORTED FORMATS
+# ============================================================
+
+@app.get("/api/v1/formats")
+async def supported_formats():
+    return {
+        "input_formats": [
+            "pdf",
+            "docx",
+            "doc",
+            "txt",
+            "rtf",
+            "pptx",
+            "ppt",
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+        ],
+        "output_formats": [
+            "pdf",
+            "docx",
+        ],
     }

@@ -1,19 +1,37 @@
 /**
+ * ============================================================
  * DocSwitch — Frontend Core Controller
+ * ============================================================
  *
  * Production frontend controller.
  *
- * Responsibilities:
- * - UI state management
- * - File validation
+ * Handles:
+ * - File selection
  * - Drag & drop
- * - PDF ↔ DOCX conversion workflow
+ * - File validation
+ * - Backend capability matching
+ * - FastAPI conversion
  * - Upload progress
- * - Real backend communication
- * - Real converted-file download
+ * - Converted Blob handling
+ * - Real browser download
+ * - Error handling
+ * - Reset / retry
  * - Navigation
+ * - Format marquee
+ * - Cinematic starfield
+ * - Cursor lighting
  *
- * Visual / UX systems are intentionally preserved.
+ * FastAPI endpoint:
+ *
+ * POST /api/v1/convert
+ *
+ * FormData:
+ *   file
+ *   target_format
+ *
+ * Expected successful backend response:
+ *   Converted file as binary response
+ * ============================================================
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -23,17 +41,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
-  // DocSwitch currently supports PDF and DOCX only.
-  const ALLOWED_EXTENSIONS = ["pdf", "docx"];
-
-  // FastAPI conversion endpoint.
   const API_ENDPOINT = "http://127.0.0.1:8000/api/v1/convert";
+
+  const ALLOWED_EXTENSIONS = [
+    "pdf",
+    "docx",
+    "doc",
+    "txt",
+    "rtf",
+    "pptx",
+    "ppt",
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+  ];
+
+  const ALLOWED_OUTPUT_FORMATS = ["pdf", "docx"];
+
+  // ==========================================================
+  // APPLICATION STATE
+  // ==========================================================
 
   let currentFile = null;
   let currentDownloadUrl = null;
+  let currentOutputFilename = null;
+  let currentOutputBlob = null;
+
+  let conversionInProgress = false;
 
   // ==========================================================
-  // DOM
+  // DOM REFERENCES
   // ==========================================================
 
   const states = {
@@ -77,14 +115,28 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   function setActiveState(targetStateKey) {
-    Object.keys(states).forEach((key) => {
-      if (!states[key]) return;
+    Object.entries(states).forEach(([key, state]) => {
+      if (!state) return;
 
-      if (key === targetStateKey) {
-        states[key].classList.add("active");
-      } else {
-        states[key].classList.remove("active");
-      }
+      const isActive = key === targetStateKey;
+
+      state.classList.toggle("active", isActive);
+
+      state.setAttribute("aria-hidden", String(!isActive));
+    });
+  }
+
+  // ==========================================================
+  // ACCESSIBILITY
+  // ==========================================================
+
+  function announce(message) {
+    if (!liveRegion) return;
+
+    liveRegion.textContent = "";
+
+    requestAnimationFrame(() => {
+      liveRegion.textContent = message;
     });
   }
 
@@ -92,35 +144,42 @@ document.addEventListener("DOMContentLoaded", () => {
   // HELPERS
   // ==========================================================
 
-  function announce(message) {
-    if (liveRegion) {
-      liveRegion.textContent = message;
-    }
-  }
-
   function formatBytes(bytes) {
-    if (bytes === 0) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
       return "0 Bytes";
     }
 
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const units = ["Bytes", "KB", "MB", "GB"];
+    const base = 1024;
 
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    const index = Math.min(
+      Math.floor(Math.log(bytes) / Math.log(base)),
+      units.length - 1,
+    );
+
+    const value = bytes / Math.pow(base, index);
+
+    return `${parseFloat(value.toFixed(1))} ${units[index]}`;
   }
 
   function getFileExtension(filename) {
+    if (!filename) return "";
+
     const lastDot = filename.lastIndexOf(".");
 
-    if (lastDot === -1) {
-      return "";
-    }
+    if (lastDot === -1) return "";
 
-    return filename.slice(lastDot + 1).toLowerCase();
+    return filename
+      .slice(lastDot + 1)
+      .toLowerCase()
+      .trim();
   }
 
   function getBaseName(filename) {
+    if (!filename) {
+      return "converted-file";
+    }
+
     const lastDot = filename.lastIndexOf(".");
 
     if (lastDot === -1) {
@@ -128,18 +187,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return filename.substring(0, lastDot);
-  }
-
-  function getMimeType(format) {
-    if (format === "pdf") {
-      return "application/pdf";
-    }
-
-    if (format === "docx") {
-      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    }
-
-    return "application/octet-stream";
   }
 
   function releaseDownloadUrl() {
@@ -155,6 +202,86 @@ document.addEventListener("DOMContentLoaded", () => {
     const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
 
     progressBar.style.width = `${safePercent}%`;
+
+    progressBar.setAttribute("aria-valuenow", String(safePercent));
+  }
+
+  function setConvertButtonLoading(isLoading) {
+    if (!btnStartConvert) return;
+
+    btnStartConvert.disabled = isLoading;
+
+    btnStartConvert.setAttribute("aria-busy", String(isLoading));
+
+    btnStartConvert.classList.toggle("is-loading", isLoading);
+  }
+
+  // ==========================================================
+  // BACKEND CAPABILITY MATRIX
+  // ==========================================================
+
+  const CONVERSION_MATRIX = {
+    pdf: {
+      pdf: false,
+      docx: true,
+    },
+
+    docx: {
+      pdf: true,
+      docx: false,
+    },
+
+    doc: {
+      pdf: true,
+      docx: true,
+    },
+
+    txt: {
+      pdf: true,
+      docx: true,
+    },
+
+    rtf: {
+      pdf: true,
+      docx: true,
+    },
+
+    pptx: {
+      pdf: true,
+      docx: true,
+    },
+
+    ppt: {
+      pdf: true,
+      docx: true,
+    },
+
+    jpg: {
+      pdf: true,
+      docx: true,
+    },
+
+    jpeg: {
+      pdf: true,
+      docx: true,
+    },
+
+    png: {
+      pdf: true,
+      docx: true,
+    },
+
+    webp: {
+      pdf: true,
+      docx: true,
+    },
+  };
+
+  function isConversionSupported(sourceFormat, targetFormat) {
+    return Boolean(
+      CONVERSION_MATRIX[sourceFormat] &&
+      CONVERSION_MATRIX[sourceFormat][targetFormat],
+    );
   }
 
   // ==========================================================
@@ -169,14 +296,28 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
-    const ext = getFileExtension(file.name);
+    const extension = getFileExtension(file.name);
 
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    if (!extension) {
+      return {
+        valid: false,
+        message: "This file has no recognizable extension.",
+      };
+    }
+
+    if (!ALLOWED_EXTENSIONS.includes(extension)) {
       return {
         valid: false,
         message:
-          `.${ext.toUpperCase()} files are not supported. ` +
-          "DocSwitch currently supports PDF and DOCX files only.",
+          `.${extension.toUpperCase()} files are not supported. ` +
+          "Supported formats include PDF, DOCX, DOC, TXT, RTF, PPT, PPTX, JPG, JPEG, PNG and WEBP.",
+      };
+    }
+
+    if (file.size === 0) {
+      return {
+        valid: false,
+        message: "The selected file is empty.",
       };
     }
 
@@ -184,7 +325,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return {
         valid: false,
         message:
-          "File exceeds the maximum limit of " +
+          "File exceeds the maximum upload limit of " +
           `${formatBytes(MAX_FILE_SIZE_BYTES)}.`,
       };
     }
@@ -195,6 +336,71 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
+  // ERROR HANDLING
+  // ==========================================================
+
+  function showError(message) {
+    if (errorMessageText) {
+      errorMessageText.textContent = message;
+    }
+
+    setActiveState("error");
+
+    announce(message);
+  }
+
+  // ==========================================================
+  // TARGET FORMAT CONFIGURATION
+  // ==========================================================
+
+  function configureTargetFormat(sourceFormat) {
+    if (!targetFormatSelect) return;
+
+    const pdfSupported = isConversionSupported(sourceFormat, "pdf");
+
+    const docxSupported = isConversionSupported(sourceFormat, "docx");
+
+    Array.from(targetFormatSelect.options).forEach((option) => {
+      const value = option.value.toLowerCase().trim();
+
+      if (!ALLOWED_OUTPUT_FORMATS.includes(value)) {
+        option.disabled = true;
+        return;
+      }
+
+      if (value === "pdf") {
+        option.disabled = !pdfSupported;
+      }
+
+      if (value === "docx") {
+        option.disabled = !docxSupported;
+      }
+    });
+
+    if (sourceFormat === "pdf" && docxSupported) {
+      targetFormatSelect.value = "docx";
+      return;
+    }
+
+    if (sourceFormat === "docx" && pdfSupported) {
+      targetFormatSelect.value = "pdf";
+      return;
+    }
+
+    if (pdfSupported) {
+      targetFormatSelect.value = "pdf";
+      return;
+    }
+
+    if (docxSupported) {
+      targetFormatSelect.value = "docx";
+      return;
+    }
+
+    targetFormatSelect.value = "";
+  }
+
+  // ==========================================================
   // FILE SELECTION
   // ==========================================================
 
@@ -202,30 +408,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const validation = validateFile(file);
 
     if (!validation.valid) {
-      if (errorMessageText) {
-        errorMessageText.textContent = validation.message;
-      }
-
-      setActiveState("error");
-      announce(validation.message);
-
+      showError(validation.message);
       return;
     }
 
+    // Clear previous result.
+    releaseDownloadUrl();
+
+    currentOutputBlob = null;
+    currentOutputFilename = null;
+
     currentFile = file;
 
-    selectedFileName.textContent = file.name;
-    selectedFileSize.textContent = formatBytes(file.size);
+    const extension = getFileExtension(file.name);
 
-    const ext = getFileExtension(file.name);
-
-    // PDF → DOCX
-    // DOCX → PDF
-    if (ext === "pdf") {
-      targetFormatSelect.value = "docx";
-    } else if (ext === "docx") {
-      targetFormatSelect.value = "pdf";
+    if (selectedFileName) {
+      selectedFileName.textContent = file.name;
     }
+
+    if (selectedFileSize) {
+      selectedFileSize.textContent = formatBytes(file.size);
+    }
+
+    configureTargetFormat(extension);
+
+    setProgress(0);
 
     setActiveState("selected");
 
@@ -238,62 +445,81 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (dropZone) {
     ["dragenter", "dragover"].forEach((eventName) => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
 
-        dropZone.classList.add("drag-over");
+        if (!conversionInProgress) {
+          dropZone.classList.add("drag-over");
+        }
       });
     });
 
     ["dragleave", "drop"].forEach((eventName) => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
 
         dropZone.classList.remove("drag-over");
       });
     });
 
-    dropZone.addEventListener("drop", (e) => {
-      const files = e.dataTransfer.files;
+    dropZone.addEventListener("drop", (event) => {
+      if (conversionInProgress) return;
+
+      const files = event.dataTransfer?.files;
 
       if (files && files.length > 0) {
         handleFileSelection(files[0]);
       }
     });
 
-    dropZone.addEventListener("click", () => {
-      if (fileInput) {
+    dropZone.addEventListener("click", (event) => {
+      if (event.target.closest("#browse-trigger")) {
+        return;
+      }
+
+      if (fileInput && !conversionInProgress) {
         fileInput.click();
       }
     });
 
-    dropZone.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
+    dropZone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
 
-        if (fileInput) {
+        if (fileInput && !conversionInProgress) {
           fileInput.click();
         }
       }
     });
   }
 
-  if (browseTrigger) {
-    browseTrigger.addEventListener("click", (e) => {
-      e.stopPropagation();
+  // ==========================================================
+  // BROWSE BUTTON
+  // ==========================================================
 
-      if (fileInput) {
+  if (browseTrigger) {
+    browseTrigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (fileInput && !conversionInProgress) {
         fileInput.click();
       }
     });
   }
 
+  // ==========================================================
+  // FILE INPUT
+  // ==========================================================
+
   if (fileInput) {
-    fileInput.addEventListener("change", (e) => {
-      if (e.target.files && e.target.files.length > 0) {
-        handleFileSelection(e.target.files[0]);
+    fileInput.addEventListener("change", (event) => {
+      const files = event.target.files;
+
+      if (files && files.length > 0) {
+        handleFileSelection(files[0]);
       }
     });
   }
@@ -303,69 +529,82 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   if (btnRemoveFile) {
-    btnRemoveFile.addEventListener("click", () => {
-      currentFile = null;
+    btnRemoveFile.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-      releaseDownloadUrl();
+      if (conversionInProgress) return;
 
-      if (fileInput) {
-        fileInput.value = "";
-      }
-
-      setActiveState("empty");
-
-      announce("File removed.");
+      resetConverter();
     });
   }
 
   // ==========================================================
-  // CONVERSION
+  // START CONVERSION
   // ==========================================================
 
   if (btnStartConvert) {
-    btnStartConvert.addEventListener("click", async () => {
-      if (!currentFile) {
-        announce("Please select a file first.");
+    btnStartConvert.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (conversionInProgress) {
         return;
       }
 
-      const targetFormat = targetFormatSelect.value;
-
-      // --------------------------------------------------------
-      // HARD SAFETY CHECK
-      // --------------------------------------------------------
-
-      if (!["pdf", "docx"].includes(targetFormat)) {
-        const message =
-          "Please select either PDF or DOCX as the output format.";
-
-        errorMessageText.textContent = message;
-        setActiveState("error");
-        announce(message);
-
+      if (!currentFile) {
+        showError("Please select a file first.");
         return;
       }
 
       const sourceFormat = getFileExtension(currentFile.name);
 
-      // Prevent PDF → PDF and DOCX → DOCX.
-      if (sourceFormat === targetFormat) {
-        const message =
-          `Your file is already in ${targetFormat.toUpperCase()} format. ` +
-          "Please choose the other format.";
+      const targetFormat = targetFormatSelect?.value?.toLowerCase()?.trim();
 
-        errorMessageText.textContent = message;
-        setActiveState("error");
-        announce(message);
+      // ----------------------------------------------------
+      // TARGET VALIDATION
+      // ----------------------------------------------------
 
+      if (!ALLOWED_OUTPUT_FORMATS.includes(targetFormat)) {
+        showError("Please select either PDF or DOCX as the output format.");
         return;
       }
 
-      // --------------------------------------------------------
-      // PREPARE UI
-      // --------------------------------------------------------
+      // ----------------------------------------------------
+      // SAME FORMAT
+      // ----------------------------------------------------
 
-      convertingFileName.textContent = currentFile.name;
+      if (sourceFormat === targetFormat) {
+        showError(
+          `Your file is already in ${targetFormat.toUpperCase()} format. ` +
+            "Please choose a different output format.",
+        );
+        return;
+      }
+
+      // ----------------------------------------------------
+      // CAPABILITY CHECK
+      // ----------------------------------------------------
+
+      if (!isConversionSupported(sourceFormat, targetFormat)) {
+        showError(
+          `Conversion from ${sourceFormat.toUpperCase()} to ` +
+            `${targetFormat.toUpperCase()} is not supported by the current backend.`,
+        );
+        return;
+      }
+
+      // ----------------------------------------------------
+      // LOCK APPLICATION STATE
+      // ----------------------------------------------------
+
+      conversionInProgress = true;
+
+      setConvertButtonLoading(true);
+
+      if (convertingFileName) {
+        convertingFileName.textContent = currentFile.name;
+      }
 
       setProgress(0);
 
@@ -375,128 +614,166 @@ document.addEventListener("DOMContentLoaded", () => {
         `Converting ${currentFile.name} to ${targetFormat.toUpperCase()}.`,
       );
 
-      // --------------------------------------------------------
-      // PREPARE FORM DATA
-      // --------------------------------------------------------
+      // ----------------------------------------------------
+      // BUILD FORMDATA
+      // ----------------------------------------------------
 
       const formData = new FormData();
 
-      formData.append("file", currentFile);
+      formData.append("file", currentFile, currentFile.name);
+
       formData.append("target_format", targetFormat);
 
-      // --------------------------------------------------------
-      // BACKEND REQUEST
-      // --------------------------------------------------------
+      // ----------------------------------------------------
+      // SEND REQUEST
+      // ----------------------------------------------------
 
       try {
-        const convertedBlob = await executeUploadRequest(
+        const response = await executeUploadRequest(
           API_ENDPOINT,
           formData,
-          (progressPercent) => {
-            setProgress(progressPercent);
+          (progress) => {
+            setProgress(progress);
           },
         );
 
-        // ------------------------------------------------------
-        // VALIDATE BACKEND RESPONSE
-        // ------------------------------------------------------
+        // --------------------------------------------------
+        // VALIDATE RESPONSE
+        // --------------------------------------------------
 
-        if (!convertedBlob || convertedBlob.size === 0) {
+        if (!response || !(response instanceof Blob) || response.size === 0) {
           throw new Error("The server returned an empty conversion file.");
         }
 
-        // ------------------------------------------------------
-        // CREATE DOWNLOAD
-        // ------------------------------------------------------
+        // --------------------------------------------------
+        // STORE RESULT
+        // --------------------------------------------------
+
+        currentOutputBlob = response;
+
+        currentOutputFilename = `${getBaseName(currentFile.name)}.${targetFormat}`;
+
+        // --------------------------------------------------
+        // CREATE DOWNLOAD URL
+        // --------------------------------------------------
 
         releaseDownloadUrl();
 
-        currentDownloadUrl = URL.createObjectURL(convertedBlob);
+        currentDownloadUrl = URL.createObjectURL(currentOutputBlob);
 
-        const outputFilename = `${getBaseName(currentFile.name)}.${targetFormat}`;
+        // --------------------------------------------------
+        // CONFIGURE DOWNLOAD BUTTON
+        // --------------------------------------------------
 
-        btnDownloadResult.href = currentDownloadUrl;
-        btnDownloadResult.download = outputFilename;
+        if (btnDownloadResult) {
+          btnDownloadResult.href = currentDownloadUrl;
 
-        successFileDetails.textContent = `${outputFilename} · ${formatBytes(convertedBlob.size)}`;
+          btnDownloadResult.download = currentOutputFilename;
+
+          btnDownloadResult.setAttribute("download", currentOutputFilename);
+
+          btnDownloadResult.setAttribute(
+            "aria-label",
+            `Download ${currentOutputFilename}`,
+          );
+
+          btnDownloadResult.removeAttribute("aria-disabled");
+        }
+
+        // --------------------------------------------------
+        // UPDATE SUCCESS UI
+        // --------------------------------------------------
+
+        if (successFileDetails) {
+          successFileDetails.textContent = `${currentOutputFilename} · ${formatBytes(
+            currentOutputBlob.size,
+          )}`;
+        }
 
         setProgress(100);
+
+        /*
+         * CRITICAL:
+         *
+         * Do not reset currentFile here.
+         * Do not reset currentDownloadUrl here.
+         *
+         * The success screen needs both values
+         * to remain alive until the user downloads
+         * or resets the converter.
+         */
 
         setActiveState("success");
 
         announce(
-          `Your file is ready. ${outputFilename} can now be downloaded.`,
+          `Conversion complete. ${currentOutputFilename} is ready for download.`,
         );
       } catch (error) {
         console.error("DocSwitch conversion error:", error);
 
         const message =
-          error?.message || "An unexpected error occurred during processing.";
+          error?.message || "An unexpected error occurred during conversion.";
 
-        if (errorMessageText) {
-          errorMessageText.textContent = message;
-        }
+        showError(message);
+      } finally {
+        conversionInProgress = false;
 
-        setActiveState("error");
-
-        announce(message);
+        setConvertButtonLoading(false);
       }
     });
   }
 
   // ==========================================================
-  // REAL BACKEND REQUEST
+  // FASTAPI REQUEST
   // ==========================================================
 
   function executeUploadRequest(url, data, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------
       // UPLOAD PROGRESS
-      // --------------------------------------------------------
+      // ----------------------------------------------------
 
-      xhr.upload.addEventListener("progress", (e) => {
-        if (!e.lengthComputable) {
+      xhr.upload.addEventListener("progress", (event) => {
+        if (!event.lengthComputable) {
           return;
         }
 
-        /*
-         * Upload represents approximately 90% of the visual
-         * progress. The remaining 10% represents backend
-         * processing / response.
-         */
-
-        const uploadPercent = (e.loaded / e.total) * 90;
+        const uploadPercent = (event.loaded / event.total) * 90;
 
         onProgress(uploadPercent);
       });
 
-      // --------------------------------------------------------
-      // REQUEST COMPLETE
-      // --------------------------------------------------------
+      // ----------------------------------------------------
+      // RESPONSE
+      // ----------------------------------------------------
 
       xhr.addEventListener("load", async () => {
         const contentType = xhr.getResponseHeader("Content-Type") || "";
 
-        // ------------------------------------------------------
+        const contentDisposition =
+          xhr.getResponseHeader("Content-Disposition") || "";
+
+        console.log("DocSwitch response:", {
+          status: xhr.status,
+          contentType,
+          contentDisposition,
+          size: xhr.response?.size ?? 0,
+        });
+
+        // ================================================
         // SUCCESS
-        // ------------------------------------------------------
+        // ================================================
 
         if (xhr.status >= 200 && xhr.status < 300) {
-          onProgress(100);
-
           const blob = xhr.response;
 
-          /*
-           * Some backends may return application/octet-stream
-           * rather than the exact MIME type. Preserve the
-           * backend bytes while giving the browser a useful
-           * content type.
-           */
-
           if (blob instanceof Blob && blob.size > 0) {
+            onProgress(100);
+
             resolve(blob);
+
             return;
           }
 
@@ -505,47 +782,40 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        // ------------------------------------------------------
-        // BACKEND ERROR
-        // ------------------------------------------------------
+        // ================================================
+        // ERROR RESPONSE
+        // ================================================
 
-        let message = "Conversion failed. Please try again.";
-
-        /*
-         * FastAPI normally returns errors as JSON:
-         *
-         * {
-         *   "detail": "..."
-         * }
-         *
-         * Because xhr.responseType is blob, we must read
-         * the Blob before parsing it.
-         */
+        let message = `Conversion failed (HTTP ${xhr.status}).`;
 
         try {
-          if (contentType.includes("application/json")) {
-            const text = await xhr.response.text();
+          const responseBlob = xhr.response;
 
-            const errorResponse = JSON.parse(text);
+          if (responseBlob instanceof Blob) {
+            const responseText = await responseBlob.text();
 
-            if (typeof errorResponse.detail === "string") {
-              message = errorResponse.detail;
-            } else if (Array.isArray(errorResponse.detail)) {
-              message = errorResponse.detail
-                .map((item) => {
-                  if (typeof item === "string") {
-                    return item;
-                  }
+            if (responseText.trim()) {
+              try {
+                const json = JSON.parse(responseText);
 
-                  return item?.msg || "Invalid request.";
-                })
-                .join(" ");
-            }
-          } else if (xhr.response) {
-            const text = await xhr.response.text();
+                if (typeof json.detail === "string") {
+                  message = json.detail;
+                } else if (Array.isArray(json.detail)) {
+                  message = json.detail
+                    .map((item) => {
+                      if (typeof item === "string") {
+                        return item;
+                      }
 
-            if (text.trim()) {
-              message = text;
+                      return item?.msg || "Invalid request.";
+                    })
+                    .join(" ");
+                } else if (typeof json.message === "string") {
+                  message = json.message;
+                }
+              } catch {
+                message = responseText;
+              }
             }
           }
         } catch (parseError) {
@@ -555,30 +825,30 @@ document.addEventListener("DOMContentLoaded", () => {
         reject(new Error(message));
       });
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------
       // NETWORK ERROR
-      // --------------------------------------------------------
+      // ----------------------------------------------------
 
       xhr.addEventListener("error", () => {
         reject(
           new Error(
             "Unable to connect to the DocSwitch conversion server. " +
-              "Make sure the FastAPI backend is running.",
+              "Make sure the FastAPI backend is running on port 8000.",
           ),
         );
       });
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------
       // ABORT
-      // --------------------------------------------------------
+      // ----------------------------------------------------
 
       xhr.addEventListener("abort", () => {
         reject(new Error("The conversion request was cancelled."));
       });
 
-      // --------------------------------------------------------
+      // ----------------------------------------------------
       // TIMEOUT
-      // --------------------------------------------------------
+      // ----------------------------------------------------
 
       xhr.timeout = 120000;
 
@@ -586,52 +856,107 @@ document.addEventListener("DOMContentLoaded", () => {
         reject(
           new Error(
             "The conversion took too long and timed out. " +
-              "Please try again.",
+              "Please try again with a smaller or simpler file.",
           ),
         );
       });
 
-      // --------------------------------------------------------
-      // IMPORTANT
-      // --------------------------------------------------------
+      // ----------------------------------------------------
+      // REQUEST
+      // ----------------------------------------------------
 
       /*
-       * Do NOT manually set Content-Type here.
+       * DO NOT manually set Content-Type.
        *
        * The browser automatically generates:
        *
-       * multipart/form-data; boundary=...
-       *
-       * when FormData is supplied.
+       * multipart/form-data;
+       * boundary=...
        */
 
-      xhr.responseType = "blob";
-
       xhr.open("POST", url, true);
+
+      xhr.responseType = "blob";
 
       xhr.send(data);
     });
   }
 
   // ==========================================================
-  // RESET
+  // DOWNLOAD RESULT
   // ==========================================================
 
-  if (btnResetConverter) {
-    btnResetConverter.addEventListener("click", () => {
-      currentFile = null;
+  if (btnDownloadResult) {
+    btnDownloadResult.addEventListener("click", (event) => {
+      if (!currentDownloadUrl || !currentOutputBlob) {
+        event.preventDefault();
 
-      releaseDownloadUrl();
+        showError("No converted file is currently available.");
 
-      if (fileInput) {
-        fileInput.value = "";
+        return;
       }
 
-      setProgress(0);
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT revoke the object URL here.
+       *
+       * The browser needs it to complete
+       * the download.
+       */
 
-      setActiveState("empty");
+      announce(`Downloading ${currentOutputFilename}.`);
+    });
+  }
 
-      announce("Converter reset.");
+  // ==========================================================
+  // RESET CONVERTER
+  // ==========================================================
+
+  function resetConverter() {
+    if (conversionInProgress) {
+      return;
+    }
+
+    currentFile = null;
+
+    currentOutputBlob = null;
+
+    currentOutputFilename = null;
+
+    releaseDownloadUrl();
+
+    if (fileInput) {
+      fileInput.value = "";
+    }
+
+    if (selectedFileName) {
+      selectedFileName.textContent = "filename.pdf";
+    }
+
+    if (selectedFileSize) {
+      selectedFileSize.textContent = "0 KB";
+    }
+
+    if (successFileDetails) {
+      successFileDetails.textContent = "converted.pdf";
+    }
+
+    setProgress(0);
+
+    setConvertButtonLoading(false);
+
+    setActiveState("empty");
+
+    announce("Converter reset. Please select a file.");
+  }
+
+  if (btnResetConverter) {
+    btnResetConverter.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      resetConverter();
     });
   }
 
@@ -640,7 +965,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   if (btnErrorRetry) {
-    btnErrorRetry.addEventListener("click", () => {
+    btnErrorRetry.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (conversionInProgress) {
+        return;
+      }
+
       if (currentFile) {
         setActiveState("selected");
 
@@ -662,6 +994,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const targetId = link.getAttribute("href");
 
       if (!targetId || targetId === "#") {
+        event.preventDefault();
+
         window.scrollTo({
           top: 0,
           behavior: "smooth",
@@ -682,10 +1016,18 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  // ==========================================================
+  // INITIAL STATE
+  // ==========================================================
+
+  setActiveState("empty");
+
+  setProgress(0);
 });
 
 // ============================================================
-// SEAMLESS FORMAT MARQUEE
+// FORMAT MARQUEE
 // ============================================================
 
 function initializeFormatMarquee() {
@@ -694,15 +1036,21 @@ function initializeFormatMarquee() {
   tracks.forEach((track) => {
     const originalSet = track.querySelector(".format-set");
 
-    if (!originalSet) return;
+    if (!originalSet) {
+      return;
+    }
 
     track
-      .querySelectorAll(".format-set[data-clone]")
-      .forEach((clone) => clone.remove());
+      .querySelectorAll('.format-set[data-clone="true"]')
+      .forEach((clone) => {
+        clone.remove();
+      });
 
     const setWidth = originalSet.getBoundingClientRect().width;
 
-    if (!setWidth) return;
+    if (!setWidth) {
+      return;
+    }
 
     const viewportWidth = window.innerWidth;
 
@@ -722,15 +1070,16 @@ function initializeFormatMarquee() {
 
     const direction = track.dataset.direction;
 
-    if (direction === "left") {
-      track.style.setProperty("--marquee-duration", "30s");
-    } else {
-      track.style.setProperty("--marquee-duration", "34s");
-    }
+    track.style.setProperty(
+      "--marquee-duration",
+      direction === "left" ? "30s" : "34s",
+    );
   });
 }
 
-initializeFormatMarquee();
+document.addEventListener("DOMContentLoaded", () => {
+  initializeFormatMarquee();
+});
 
 let marqueeResizeTimeout;
 
@@ -743,13 +1092,21 @@ window.addEventListener("resize", () => {
 });
 
 // ============================================================
-// DOCSWITCH — REFINED CINEMATIC STARFIELD
+// DOCSWITCH — CINEMATIC STARFIELD
 // ============================================================
 
-const ambientCanvas = document.getElementById("ambient-canvas");
+document.addEventListener("DOMContentLoaded", () => {
+  const ambientCanvas = document.getElementById("ambient-canvas");
 
-if (ambientCanvas) {
+  if (!ambientCanvas) {
+    return;
+  }
+
   const ctx = ambientCanvas.getContext("2d");
+
+  if (!ctx) {
+    return;
+  }
 
   let width = 0;
   let height = 0;
@@ -762,21 +1119,22 @@ if (ambientCanvas) {
   const config = {
     desktopStars: 250,
     mobileStars: 125,
-    minRadius: 0.34,
-    maxRadius: 1.35,
+
     minOpacity: 0.19,
     maxOpacity: 0.63,
+
     speed: 0.025,
   };
 
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
   // RESIZE
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
 
   function resizeCanvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     width = window.innerWidth;
+
     height = window.innerHeight;
 
     ambientCanvas.width = width * dpr;
@@ -790,9 +1148,9 @@ if (ambientCanvas) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
   // STAR
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
 
   class Star {
     constructor() {
@@ -829,10 +1187,6 @@ if (ambientCanvas) {
       this.twinkleOffset = Math.random() * Math.PI * 2;
     }
 
-    // ----------------------------------------------------------
-    // UPDATE
-    // ----------------------------------------------------------
-
     update(time) {
       if (!reducedMotion) {
         this.y += this.speed;
@@ -846,10 +1200,6 @@ if (ambientCanvas) {
         this.x = Math.random() * width;
       }
     }
-
-    // ----------------------------------------------------------
-    // DRAW
-    // ----------------------------------------------------------
 
     draw(time) {
       let alpha = this.opacity;
@@ -894,9 +1244,9 @@ if (ambientCanvas) {
     }
   }
 
-  // ------------------------------------------------------------
-  // CREATE STARFIELD
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
+  // CREATE STARS
+  // --------------------------------------------------------
 
   function createStars() {
     const count =
@@ -909,9 +1259,9 @@ if (ambientCanvas) {
     }
   }
 
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
   // ANIMATION
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
 
   function animate(time) {
     ctx.clearRect(0, 0, width, height);
@@ -924,11 +1274,12 @@ if (ambientCanvas) {
     requestAnimationFrame(animate);
   }
 
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
   // INITIALIZE
-  // ------------------------------------------------------------
+  // --------------------------------------------------------
 
   resizeCanvas();
+
   createStars();
 
   window.addEventListener(
@@ -937,50 +1288,60 @@ if (ambientCanvas) {
       resizeCanvas();
       createStars();
     },
-    { passive: true },
+    {
+      passive: true,
+    },
   );
 
   if (!reducedMotion) {
     requestAnimationFrame(animate);
   }
-}
+});
 
 // ============================================================
-// DROPZONE — SUBTLE CURSOR LIGHT
+// DROPZONE — CURSOR LIGHT
 // ============================================================
 
-const dropZone = document.getElementById("drop-zone");
+document.addEventListener("DOMContentLoaded", () => {
+  const dropZone = document.getElementById("drop-zone");
 
-if (dropZone) {
-  dropZone.addEventListener("pointermove", (e) => {
+  if (!dropZone) {
+    return;
+  }
+
+  dropZone.addEventListener("pointermove", (event) => {
     const rect = dropZone.getBoundingClientRect();
 
-    const x = e.clientX - rect.left;
+    const x = event.clientX - rect.left;
 
-    const y = e.clientY - rect.top;
+    const y = event.clientY - rect.top;
 
     dropZone.style.setProperty("--mouse-x", `${x}px`);
 
     dropZone.style.setProperty("--mouse-y", `${y}px`);
   });
-}
+});
 
 // ============================================================
 // CONVERT BUTTON — CURSOR LIGHT
 // ============================================================
 
-const btnStartConvert = document.getElementById("btn-start-convert");
+document.addEventListener("DOMContentLoaded", () => {
+  const btnStartConvert = document.getElementById("btn-start-convert");
 
-if (btnStartConvert) {
-  btnStartConvert.addEventListener("pointermove", (e) => {
+  if (!btnStartConvert) {
+    return;
+  }
+
+  btnStartConvert.addEventListener("pointermove", (event) => {
     const rect = btnStartConvert.getBoundingClientRect();
 
-    const x = e.clientX - rect.left;
+    const x = event.clientX - rect.left;
 
-    const y = e.clientY - rect.top;
+    const y = event.clientY - rect.top;
 
     btnStartConvert.style.setProperty("--button-x", `${x}px`);
 
     btnStartConvert.style.setProperty("--button-y", `${y}px`);
   });
-}
+});

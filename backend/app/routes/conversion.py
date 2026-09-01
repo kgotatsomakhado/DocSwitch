@@ -66,26 +66,32 @@ CONVERSION_MATRIX = {
 
     "pptx": {
         "pdf",
+        "docx",
     },
 
     "ppt": {
         "pdf",
+        "docx",
     },
 
     "jpg": {
         "pdf",
+        "docx",
     },
 
     "jpeg": {
         "pdf",
+        "docx",
     },
 
     "png": {
         "pdf",
+        "docx",
     },
 
     "webp": {
         "pdf",
+        "docx",
     },
 }
 
@@ -130,6 +136,28 @@ async def convert_file_endpoint(
     file: UploadFile = File(...),
     target_format: str = Form(...),
 ):
+    """
+    Convert an uploaded file.
+
+    Supported inputs:
+
+        PDF
+        DOCX
+        DOC
+        TXT
+        RTF
+        PPTX
+        PPT
+        JPG
+        JPEG
+        PNG
+        WEBP
+
+    Supported outputs:
+
+        PDF
+        DOCX
+    """
 
     # ========================================================
     # VALIDATE FILE
@@ -141,12 +169,14 @@ async def convert_file_endpoint(
             detail="No file selected.",
         )
 
+    original_filename = file.filename
+
     # ========================================================
     # SOURCE FORMAT
     # ========================================================
 
     source_format = (
-        Path(file.filename)
+        Path(original_filename)
         .suffix
         .lower()
         .lstrip(".")
@@ -157,7 +187,9 @@ async def convert_file_endpoint(
             status_code=400,
             detail=(
                 f".{source_format.upper()} files "
-                "are not supported."
+                "are not supported. "
+                "Supported formats are PDF, DOCX, DOC, TXT, "
+                "RTF, PPTX, PPT, JPG, JPEG, PNG and WEBP."
             ),
         )
 
@@ -177,7 +209,21 @@ async def convert_file_endpoint(
             status_code=400,
             detail=(
                 f"Conversion to .{target_format} "
-                "is not supported."
+                "is not supported. "
+                "DocSwitch currently outputs PDF and DOCX."
+            ),
+        )
+
+    # ========================================================
+    # SAME FORMAT
+    # ========================================================
+
+    if source_format == target_format:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Your file is already in "
+                f"{target_format.upper()} format."
             ),
         )
 
@@ -271,7 +317,7 @@ async def convert_file_endpoint(
         # ====================================================
 
         output_filename = (
-            Path(file.filename).stem
+            Path(original_filename).stem
             + "."
             + target_format
         )
@@ -292,7 +338,7 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
-        # CLEANUP AFTER RESPONSE
+        # CLEANUP
         # ====================================================
 
         background_tasks.add_task(
@@ -305,7 +351,7 @@ async def convert_file_endpoint(
         # ====================================================
 
         return FileResponse(
-            path=converted_file,
+            path=str(converted_file),
             media_type=media_type,
             filename=output_filename,
             background=background_tasks,
@@ -352,6 +398,11 @@ async def convert_file_endpoint(
 
         cleanup_workspace(
             workspace
+        )
+
+        print(
+            "DocSwitch unexpected conversion error:",
+            repr(exc),
         )
 
         raise HTTPException(
