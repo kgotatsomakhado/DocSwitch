@@ -5,19 +5,27 @@ from pathlib import Path
 # DOCSWITCH CONFIGURATION
 # ============================================================
 
-# Root directory of the backend
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Temporary workspace
+# ============================================================
+# TEMPORARY WORKSPACE
+# ============================================================
+
 TEMP_DIR = BASE_DIR / "temp"
 
 
-# Maximum upload size
+# ============================================================
+# UPLOAD LIMIT
+# ============================================================
+
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
 
-# Supported input formats
+# ============================================================
+# SUPPORTED INPUT FORMATS
+# ============================================================
+
 ALLOWED_EXTENSIONS = {
     "pdf",
     "docx",
@@ -33,17 +41,25 @@ ALLOWED_EXTENSIONS = {
 }
 
 
-# Supported output formats
+# ============================================================
+# SUPPORTED OUTPUT FORMATS
+# ============================================================
+
 ALLOWED_TARGET_FORMATS = {
     "pdf",
     "docx",
 }
 
 
+# ============================================================
+# DIRECTORY INITIALIZATION
+# ============================================================
+
 def ensure_directories() -> None:
     """
-    Make sure required backend directories exist.
+    Ensure required backend directories exist.
     """
+
     TEMP_DIR.mkdir(
         parents=True,
         exist_ok=True,

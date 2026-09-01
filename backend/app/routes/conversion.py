@@ -22,9 +22,13 @@ from app.config import (
 
 from app.services.converter import (
     ConversionError,
-    convert_to_pdf,
+    convert_file,
 )
 
+
+# ============================================================
+# ROUTER
+# ============================================================
 
 router = APIRouter(
     prefix="/convert",
@@ -37,17 +41,67 @@ router = APIRouter(
 # ============================================================
 
 CONVERSION_MATRIX = {
-    "pdf": {"docx", "jpg", "jpeg", "png", "webp"},
-    "docx": {"pdf"},
-    "doc": {"pdf"},
-    "txt": {"pdf", "docx"},
-    "rtf": {"pdf"},
-    "pptx": {"pdf"},
-    "ppt": {"pdf"},
-    "jpg": {"pdf"},
-    "jpeg": {"pdf"},
-    "png": {"pdf"},
-    "webp": {"pdf"},
+    "pdf": {
+        "docx",
+    },
+
+    "docx": {
+        "pdf",
+    },
+
+    "doc": {
+        "pdf",
+        "docx",
+    },
+
+    "txt": {
+        "pdf",
+        "docx",
+    },
+
+    "rtf": {
+        "pdf",
+        "docx",
+    },
+
+    "pptx": {
+        "pdf",
+    },
+
+    "ppt": {
+        "pdf",
+    },
+
+    "jpg": {
+        "pdf",
+    },
+
+    "jpeg": {
+        "pdf",
+    },
+
+    "png": {
+        "pdf",
+    },
+
+    "webp": {
+        "pdf",
+    },
+}
+
+
+# ============================================================
+# MIME TYPES
+# ============================================================
+
+MEDIA_TYPES = {
+    "pdf": "application/pdf",
+
+    "docx": (
+        "application/"
+        "vnd.openxmlformats-officedocument."
+        "wordprocessingml.document"
+    ),
 }
 
 
@@ -55,13 +109,11 @@ CONVERSION_MATRIX = {
 # CLEANUP
 # ============================================================
 
-def cleanup_workspace(workspace: Path):
+def cleanup_workspace(workspace: Path) -> None:
     """
     Delete the temporary conversion workspace.
-
-    This runs as a FastAPI background task after the
-    FileResponse has finished processing the response.
     """
+
     shutil.rmtree(
         workspace,
         ignore_errors=True,
@@ -73,15 +125,15 @@ def cleanup_workspace(workspace: Path):
 # ============================================================
 
 @router.post("")
-async def convert_file(
+async def convert_file_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     target_format: str = Form(...),
 ):
 
-    # --------------------------------------------------------
-    # Validate filename
-    # --------------------------------------------------------
+    # ========================================================
+    # VALIDATE FILE
+    # ========================================================
 
     if not file.filename:
         raise HTTPException(
@@ -89,9 +141,9 @@ async def convert_file(
             detail="No file selected.",
         )
 
-    # --------------------------------------------------------
-    # Extract source extension
-    # --------------------------------------------------------
+    # ========================================================
+    # SOURCE FORMAT
+    # ========================================================
 
     source_format = (
         Path(file.filename)
@@ -109,9 +161,9 @@ async def convert_file(
             ),
         )
 
-    # --------------------------------------------------------
-    # Normalize target format
-    # --------------------------------------------------------
+    # ========================================================
+    # TARGET FORMAT
+    # ========================================================
 
     target_format = (
         target_format
@@ -129,9 +181,9 @@ async def convert_file(
             ),
         )
 
-    # --------------------------------------------------------
-    # Check conversion matrix
-    # --------------------------------------------------------
+    # ========================================================
+    # CONVERSION MATRIX
+    # ========================================================
 
     allowed_targets = CONVERSION_MATRIX.get(
         source_format,
@@ -148,7 +200,7 @@ async def convert_file(
         )
 
     # ========================================================
-    # CREATE ISOLATED CONVERSION WORKSPACE
+    # CREATE WORKSPACE
     # ========================================================
 
     workspace = Path(
@@ -163,21 +215,25 @@ async def convert_file(
         / f"{uuid4().hex}.{source_format}"
     )
 
-    output_directory = workspace / "output"
+    output_directory = (
+        workspace / "output"
+    )
 
     total_size = 0
 
     try:
 
-        # ----------------------------------------------------
-        # Save uploaded file
-        # ----------------------------------------------------
+        # ====================================================
+        # SAVE UPLOAD
+        # ====================================================
 
         with input_path.open("wb") as buffer:
 
             while True:
 
-                chunk = await file.read(1024 * 1024)
+                chunk = await file.read(
+                    1024 * 1024
+                )
 
                 if not chunk:
                     break
@@ -185,10 +241,11 @@ async def convert_file(
                 total_size += len(chunk)
 
                 # --------------------------------------------
-                # Enforce upload size during streaming
+                # ENFORCE SIZE LIMIT
                 # --------------------------------------------
 
                 if total_size > MAX_FILE_SIZE:
+
                     raise HTTPException(
                         status_code=413,
                         detail=(
@@ -199,26 +256,19 @@ async def convert_file(
 
                 buffer.write(chunk)
 
-        # ----------------------------------------------------
-        # Conversion
-        # ----------------------------------------------------
+        # ====================================================
+        # CONVERT
+        # ====================================================
 
-        if target_format == "pdf":
+        converted_file = convert_file(
+            input_file=input_path,
+            output_directory=output_directory,
+            target_format=target_format,
+        )
 
-            converted_file = convert_to_pdf(
-                input_file=input_path,
-                output_directory=output_directory,
-            )
-
-        else:
-
-            raise ConversionError(
-                "This conversion is not implemented yet."
-            )
-
-        # ----------------------------------------------------
-        # Prepare download filename
-        # ----------------------------------------------------
+        # ====================================================
+        # OUTPUT FILENAME
+        # ====================================================
 
         output_filename = (
             Path(file.filename).stem
@@ -226,65 +276,83 @@ async def convert_file(
             + target_format
         )
 
-        # ----------------------------------------------------
-        # Close uploaded file
-        # ----------------------------------------------------
+        # ====================================================
+        # CLOSE UPLOAD
+        # ====================================================
 
         await file.close()
 
-        # ----------------------------------------------------
-        # Schedule workspace cleanup
-        #
-        # IMPORTANT:
-        # Do NOT delete the workspace here.
-        #
-        # FileResponse still needs access to converted_file.
-        # FastAPI will execute this background task after
-        # the response has been processed.
-        # ----------------------------------------------------
+        # ====================================================
+        # MIME TYPE
+        # ====================================================
+
+        media_type = MEDIA_TYPES.get(
+            target_format,
+            "application/octet-stream",
+        )
+
+        # ====================================================
+        # CLEANUP AFTER RESPONSE
+        # ====================================================
 
         background_tasks.add_task(
             cleanup_workspace,
             workspace,
         )
 
-        # ----------------------------------------------------
-        # Return converted file
-        # ----------------------------------------------------
+        # ====================================================
+        # RETURN FILE
+        # ====================================================
 
         return FileResponse(
             path=converted_file,
-            media_type="application/pdf",
+            media_type=media_type,
             filename=output_filename,
             background=background_tasks,
         )
+
+    # ========================================================
+    # HTTP ERRORS
+    # ========================================================
 
     except HTTPException:
 
         await file.close()
 
-        # The response will not be sent successfully,
-        # so cleanup can happen immediately.
-        cleanup_workspace(workspace)
+        cleanup_workspace(
+            workspace
+        )
 
         raise
+
+    # ========================================================
+    # CONVERSION ERRORS
+    # ========================================================
 
     except ConversionError as exc:
 
         await file.close()
 
-        cleanup_workspace(workspace)
+        cleanup_workspace(
+            workspace
+        )
 
         raise HTTPException(
             status_code=500,
             detail=str(exc),
         ) from exc
 
+    # ========================================================
+    # UNEXPECTED ERRORS
+    # ========================================================
+
     except Exception as exc:
 
         await file.close()
 
-        cleanup_workspace(workspace)
+        cleanup_workspace(
+            workspace
+        )
 
         raise HTTPException(
             status_code=500,

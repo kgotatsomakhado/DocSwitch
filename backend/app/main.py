@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import ensure_directories
 from app.routes.conversion import router as conversion_router
@@ -10,13 +11,32 @@ from app.routes.conversion import router as conversion_router
 
 ensure_directories()
 
-
 app = FastAPI(
     title="DocSwitch API",
-    description="Free document conversion API",
+    description="Document conversion API",
     version="1.0.0",
 )
 
+
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# ROUTES
+# ============================================================
 
 app.include_router(
     conversion_router,
