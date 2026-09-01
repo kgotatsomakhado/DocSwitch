@@ -70,18 +70,20 @@ def find_libreoffice() -> Optional[Path]:
     """
     Locate LibreOffice on the current machine.
 
-    Supports:
-        - DOCSWITCH_LIBREOFFICE_PATH environment variable
-        - Windows installations
-        - PATH-based installations
-        - Linux installations
+    Priority:
+
+    1. DOCSWITCH_LIBREOFFICE_PATH
+    2. Standard Windows installation
+    3. PATH
     """
 
     # --------------------------------------------------------
-    # Explicit environment variable
+    # Environment variable
     # --------------------------------------------------------
 
-    configured_path = os.getenv("DOCSWITCH_LIBREOFFICE_PATH")
+    configured_path = os.getenv(
+        "DOCSWITCH_LIBREOFFICE_PATH"
+    )
 
     if configured_path:
         configured = Path(configured_path)
@@ -124,13 +126,12 @@ def find_libreoffice() -> Optional[Path]:
 
 
 # ============================================================
-# VALIDATION
+# VALIDATE INPUT
 # ============================================================
 
 def validate_input(input_file: Path) -> None:
     """
-    Validate that the input file exists, is not empty,
-    and uses a supported extension.
+    Validate input file.
     """
 
     if not input_file.exists():
@@ -161,12 +162,12 @@ def validate_input(input_file: Path) -> None:
 
 
 # ============================================================
-# OUTPUT VALIDATION
+# VALIDATE OUTPUT
 # ============================================================
 
 def validate_output(output_file: Path) -> Path:
     """
-    Verify that the conversion produced a valid file.
+    Verify that conversion created a usable file.
     """
 
     if not output_file.exists():
@@ -188,7 +189,7 @@ def validate_output(output_file: Path) -> Path:
 
 
 # ============================================================
-# LIBREOFFICE COMMAND
+# LIBREOFFICE CONVERSION
 # ============================================================
 
 def run_libreoffice(
@@ -197,7 +198,11 @@ def run_libreoffice(
     target_format: str,
 ) -> Path:
     """
-    Use LibreOffice for native office/document conversions.
+    Convert an Office/document file using LibreOffice.
+
+    A unique LibreOffice user profile is created for every
+    conversion. This prevents profile locking and conflicts
+    between multiple LibreOffice processes.
     """
 
     libreoffice = find_libreoffice()
@@ -221,17 +226,61 @@ def run_libreoffice(
         .lstrip(".")
     )
 
+    # --------------------------------------------------------
+    # Unique temporary LibreOffice profile
+    # --------------------------------------------------------
+
+    profile_directory = (
+        output_directory
+        / "_libreoffice_profile"
+    )
+
+    profile_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # LibreOffice requires a file URL for UserInstallation.
+    profile_url = profile_directory.resolve().as_uri()
+
+    # --------------------------------------------------------
+    # Command
+    # --------------------------------------------------------
+
     command = [
         str(libreoffice),
+
         "--headless",
+
+        "--invisible",
+
+        "--nodefault",
+
+        "--nologo",
+
+        "--nofirststartwizard",
+
+        f"-env:UserInstallation={profile_url}",
+
         "--convert-to",
         target_format,
+
         "--outdir",
         str(output_directory),
+
         str(input_file),
     ]
 
+    print("------------------------------------------------------------")
+    print("DocSwitch LibreOffice conversion")
+    print("Executable:", libreoffice)
+    print("Input:", input_file)
+    print("Output directory:", output_directory)
+    print("Target format:", target_format)
+    print("------------------------------------------------------------")
+
     try:
+
         result = subprocess.run(
             command,
             capture_output=True,
@@ -241,35 +290,104 @@ def run_libreoffice(
         )
 
     except subprocess.TimeoutExpired as exc:
+
         raise ConversionError(
-            "Conversion timed out. Please try a smaller "
-            "or simpler file."
+            "LibreOffice conversion timed out after "
+            f"{CONVERSION_TIMEOUT} seconds."
+        ) from exc
+
+    except FileNotFoundError as exc:
+
+        raise ConversionError(
+            "LibreOffice executable could not be started."
+        ) from exc
+
+    except PermissionError as exc:
+
+        raise ConversionError(
+            "Permission was denied while starting LibreOffice."
         ) from exc
 
     except OSError as exc:
+
         raise ConversionError(
-            "Unable to start LibreOffice. "
-            "Make sure LibreOffice is installed correctly."
+            "Unable to start LibreOffice."
         ) from exc
 
     except Exception as exc:
+
         raise ConversionError(
-            "Unable to start the conversion engine."
+            f"Unexpected LibreOffice error: {exc}"
         ) from exc
 
+    # --------------------------------------------------------
+    # DEBUG OUTPUT
+    # --------------------------------------------------------
+
+    stdout = (
+        result.stdout.strip()
+        if result.stdout
+        else ""
+    )
+
+    stderr = (
+        result.stderr.strip()
+        if result.stderr
+        else ""
+    )
+
+    print("LibreOffice return code:", result.returncode)
+
+    if stdout:
+        print("LibreOffice stdout:")
+        print(stdout)
+
+    if stderr:
+        print("LibreOffice stderr:")
+        print(stderr)
+
+    # --------------------------------------------------------
+    # Process failed
+    # --------------------------------------------------------
+
     if result.returncode != 0:
+
         error_message = (
-            result.stderr.strip()
-            or result.stdout.strip()
+            stderr
+            or stdout
             or "LibreOffice failed to convert the file."
         )
 
-        raise ConversionError(error_message)
+        raise ConversionError(
+            error_message
+        )
+
+    # --------------------------------------------------------
+    # Expected output
+    # --------------------------------------------------------
 
     output_file = (
         output_directory
         / f"{input_file.stem}.{target_format}"
     )
+
+    # --------------------------------------------------------
+    # Sometimes LibreOffice reports success but the expected
+    # file does not exist. Search the output directory before
+    # declaring failure.
+    # --------------------------------------------------------
+
+    if not output_file.exists():
+
+        candidates = [
+            path
+            for path in output_directory.iterdir()
+            if path.is_file()
+            and path.suffix.lower() == f".{target_format}"
+        ]
+
+        if len(candidates) == 1:
+            output_file = candidates[0]
 
     return validate_output(output_file)
 
@@ -282,9 +400,6 @@ def image_to_pdf(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert JPG/JPEG/PNG/WEBP to PDF.
-    """
 
     output_directory.mkdir(
         parents=True,
@@ -297,17 +412,19 @@ def image_to_pdf(
     )
 
     try:
+
         with Image.open(input_file) as image:
 
-            image = image.convert("RGB")
+            rgb_image = image.convert("RGB")
 
-            image.save(
+            rgb_image.save(
                 output_file,
                 "PDF",
                 resolution=150.0,
             )
 
     except Exception as exc:
+
         raise ConversionError(
             "Unable to convert the image to PDF."
         ) from exc
@@ -323,12 +440,6 @@ def image_to_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert an image into a DOCX document.
-
-    The image is inserted into the document while preserving
-    its aspect ratio.
-    """
 
     output_directory.mkdir(
         parents=True,
@@ -341,6 +452,7 @@ def image_to_docx(
     )
 
     try:
+
         document = Document()
 
         section = document.sections[0]
@@ -382,6 +494,7 @@ def image_to_docx(
         raise
 
     except Exception as exc:
+
         raise ConversionError(
             "Unable to convert the image to DOCX."
         ) from exc
@@ -397,14 +510,12 @@ def pdf_to_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert PDF to editable DOCX using pdf2docx.
-    """
 
     if PDF2DOCXConverter is None:
+
         raise ConversionError(
             "PDF to DOCX support is unavailable. "
-            "Install the pdf2docx package."
+            "Install pdf2docx."
         )
 
     output_directory.mkdir(
@@ -442,8 +553,10 @@ def pdf_to_docx(
     finally:
 
         if converter is not None:
+
             try:
                 converter.close()
+
             except Exception:
                 pass
 
@@ -451,21 +564,16 @@ def pdf_to_docx(
 
 
 # ============================================================
-# PDF → IMAGES
+# PDF → RENDERED PAGES
 # ============================================================
 
 def render_pdf_pages(
     input_file: Path,
     output_directory: Path,
 ) -> list[Path]:
-    """
-    Render PDF pages to PNG files.
-
-    Used when a PDF needs to be embedded into a DOCX
-    while preserving visual appearance.
-    """
 
     if fitz is None:
+
         raise ConversionError(
             "PDF rendering support is unavailable. "
             "Install PyMuPDF."
@@ -480,13 +588,17 @@ def render_pdf_pages(
 
     try:
 
-        pdf = fitz.open(str(input_file))
+        pdf = fitz.open(
+            str(input_file)
+        )
 
         try:
 
             for page_number in range(len(pdf)):
 
-                page = pdf.load_page(page_number)
+                page = pdf.load_page(
+                    page_number
+                )
 
                 matrix = fitz.Matrix(
                     1.5,
@@ -525,6 +637,7 @@ def render_pdf_pages(
         ) from exc
 
     if not rendered_pages:
+
         raise ConversionError(
             "The PDF contains no renderable pages."
         )
@@ -540,14 +653,9 @@ def pdf_to_visual_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Create a DOCX containing rendered PDF pages.
-
-    This preserves visual appearance when editable PDF
-    reconstruction is unreliable.
-    """
 
     if fitz is None:
+
         raise ConversionError(
             "PDF rendering support is unavailable. "
             "Install PyMuPDF."
@@ -611,16 +719,13 @@ def pdf_to_visual_docx(
 
 
 # ============================================================
-# OFFICE/DOCUMENT → PDF
+# OFFICE → PDF
 # ============================================================
 
 def office_to_pdf(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert Office/document formats to PDF through LibreOffice.
-    """
 
     return run_libreoffice(
         input_file=input_file,
@@ -630,17 +735,13 @@ def office_to_pdf(
 
 
 # ============================================================
-# OFFICE/DOCUMENT → DOCX
+# OFFICE → DOCX
 # ============================================================
 
 def office_to_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert supported Office/document formats to DOCX
-    through LibreOffice.
-    """
 
     return run_libreoffice(
         input_file=input_file,
@@ -650,19 +751,13 @@ def office_to_docx(
 
 
 # ============================================================
-# PPT/PPTX → DOCX
+# PRESENTATION → DOCX
 # ============================================================
 
 def presentation_to_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert a presentation to PDF using LibreOffice and then
-    place the rendered slides into a DOCX.
-
-    This prioritizes visual fidelity.
-    """
 
     pdf_directory = (
         output_directory
@@ -689,26 +784,6 @@ def convert_file(
     output_directory: Path,
     target_format: str,
 ) -> Path:
-    """
-    Main DocSwitch conversion dispatcher.
-
-    Supported inputs:
-        PDF
-        DOCX
-        DOC
-        TXT
-        RTF
-        PPTX
-        PPT
-        JPG
-        JPEG
-        PNG
-        WEBP
-
-    Supported outputs:
-        PDF
-        DOCX
-    """
 
     validate_input(input_file)
 
@@ -720,6 +795,7 @@ def convert_file(
     )
 
     if target_format not in SUPPORTED_OUTPUTS:
+
         raise ConversionError(
             f"Conversion to .{target_format} is not supported."
         )
@@ -731,10 +807,11 @@ def convert_file(
     )
 
     # --------------------------------------------------------
-    # Prevent same-format conversion
+    # SAME FORMAT
     # --------------------------------------------------------
 
     if source_format == target_format:
+
         raise ConversionError(
             f"The file is already in "
             f"{target_format.upper()} format."
@@ -748,6 +825,7 @@ def convert_file(
         source_format == "pdf"
         and target_format == "docx"
     ):
+
         return pdf_to_docx(
             input_file=input_file,
             output_directory=output_directory,
@@ -761,13 +839,14 @@ def convert_file(
         source_format == "docx"
         and target_format == "pdf"
     ):
+
         return office_to_pdf(
             input_file=input_file,
             output_directory=output_directory,
         )
 
     # --------------------------------------------------------
-    # Office/document → PDF
+    # DOCUMENT → PDF
     # --------------------------------------------------------
 
     if target_format == "pdf":
@@ -779,6 +858,7 @@ def convert_file(
             "pptx",
             "ppt",
         }:
+
             return office_to_pdf(
                 input_file=input_file,
                 output_directory=output_directory,
@@ -790,13 +870,14 @@ def convert_file(
             "png",
             "webp",
         }:
+
             return image_to_pdf(
                 input_file=input_file,
                 output_directory=output_directory,
             )
 
     # --------------------------------------------------------
-    # Office/document → DOCX
+    # DOCUMENT → DOCX
     # --------------------------------------------------------
 
     if target_format == "docx":
@@ -806,6 +887,7 @@ def convert_file(
             "txt",
             "rtf",
         }:
+
             return office_to_docx(
                 input_file=input_file,
                 output_directory=output_directory,
@@ -815,6 +897,7 @@ def convert_file(
             "pptx",
             "ppt",
         }:
+
             return presentation_to_docx(
                 input_file=input_file,
                 output_directory=output_directory,
@@ -826,13 +909,14 @@ def convert_file(
             "png",
             "webp",
         }:
+
             return image_to_docx(
                 input_file=input_file,
                 output_directory=output_directory,
             )
 
     # --------------------------------------------------------
-    # Unsupported combination
+    # UNSUPPORTED
     # --------------------------------------------------------
 
     raise ConversionError(
@@ -842,16 +926,13 @@ def convert_file(
 
 
 # ============================================================
-# PDF CONVENIENCE FUNCTION
+# CONVENIENCE FUNCTIONS
 # ============================================================
 
 def convert_to_pdf(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert a supported input file to PDF.
-    """
 
     return convert_file(
         input_file=input_file,
@@ -860,17 +941,10 @@ def convert_to_pdf(
     )
 
 
-# ============================================================
-# DOCX CONVENIENCE FUNCTION
-# ============================================================
-
 def convert_to_docx(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
-    """
-    Convert a supported input file to DOCX.
-    """
 
     return convert_file(
         input_file=input_file,

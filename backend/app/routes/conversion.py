@@ -11,6 +11,9 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+
+from fastapi.concurrency import run_in_threadpool
+
 from fastapi.responses import FileResponse
 
 from app.config import (
@@ -115,15 +118,26 @@ MEDIA_TYPES = {
 # CLEANUP
 # ============================================================
 
-def cleanup_workspace(workspace: Path) -> None:
+def cleanup_workspace(
+    workspace: Path,
+) -> None:
     """
-    Delete the temporary conversion workspace.
+    Delete a temporary conversion workspace.
     """
 
-    shutil.rmtree(
-        workspace,
-        ignore_errors=True,
-    )
+    try:
+
+        shutil.rmtree(
+            workspace,
+            ignore_errors=True,
+        )
+
+    except Exception as exc:
+
+        print(
+            "DocSwitch cleanup error:",
+            repr(exc),
+        )
 
 
 # ============================================================
@@ -139,37 +153,36 @@ async def convert_file_endpoint(
     """
     Convert an uploaded file.
 
-    Supported inputs:
+    Request:
 
-        PDF
-        DOCX
-        DOC
-        TXT
-        RTF
-        PPTX
-        PPT
-        JPG
-        JPEG
-        PNG
-        WEBP
+        multipart/form-data
 
-    Supported outputs:
+        file
+        target_format
 
-        PDF
-        DOCX
+    Response:
+
+        Converted binary file.
     """
 
+    workspace = None
+
     # ========================================================
-    # VALIDATE FILE
+    # VALIDATE FILE NAME
     # ========================================================
 
     if not file.filename:
+
+        await file.close()
+
         raise HTTPException(
             status_code=400,
             detail="No file selected.",
         )
 
-    original_filename = file.filename
+    original_filename = Path(
+        file.filename
+    ).name
 
     # ========================================================
     # SOURCE FORMAT
@@ -183,6 +196,9 @@ async def convert_file_endpoint(
     )
 
     if source_format not in ALLOWED_EXTENSIONS:
+
+        await file.close()
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -205,6 +221,9 @@ async def convert_file_endpoint(
     )
 
     if target_format not in ALLOWED_TARGET_FORMATS:
+
+        await file.close()
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -219,6 +238,9 @@ async def convert_file_endpoint(
     # ========================================================
 
     if source_format == target_format:
+
+        await file.close()
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -237,6 +259,9 @@ async def convert_file_endpoint(
     )
 
     if target_format not in allowed_targets:
+
+        await file.close()
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -262,16 +287,28 @@ async def convert_file_endpoint(
     )
 
     output_directory = (
-        workspace / "output"
+        workspace
+        / "output"
     )
 
     total_size = 0
+
+    print("========================================")
+    print("DOCSWITCH — CONVERSION REQUEST")
+    print("========================================")
+    print("Filename:", original_filename)
+    print("Source:", source_format)
+    print("Target:", target_format)
+    print("Workspace:", workspace)
+    print("========================================")
 
     try:
 
         # ====================================================
         # SAVE UPLOAD
         # ====================================================
+
+        print("Saving uploaded file...")
 
         with input_path.open("wb") as buffer:
 
@@ -287,7 +324,7 @@ async def convert_file_endpoint(
                 total_size += len(chunk)
 
                 # --------------------------------------------
-                # ENFORCE SIZE LIMIT
+                # SIZE LIMIT
                 # --------------------------------------------
 
                 if total_size > MAX_FILE_SIZE:
@@ -302,15 +339,75 @@ async def convert_file_endpoint(
 
                 buffer.write(chunk)
 
+        print(
+            "Upload saved:",
+            total_size,
+            "bytes",
+        )
+
+        # ====================================================
+        # CLOSE UPLOAD STREAM
+        # ====================================================
+
+        await file.close()
+
+        print(
+            "Upload stream closed."
+        )
+
+        # ====================================================
+        # VERIFY INPUT
+        # ====================================================
+
+        if not input_path.exists():
+
+            raise ConversionError(
+                "Uploaded file could not be saved."
+            )
+
+        if input_path.stat().st_size == 0:
+
+            raise ConversionError(
+                "Uploaded file is empty."
+            )
+
         # ====================================================
         # CONVERT
         # ====================================================
 
-        converted_file = convert_file(
-            input_file=input_path,
+        print("Starting conversion...")
+        print(
+            "Running conversion in worker thread."
+        )
+
+        converted_file = await run_in_threadpool(
+            convert_file,
+            input_path=input_path,
             output_directory=output_directory,
             target_format=target_format,
         )
+
+        print(
+            "Conversion completed:",
+            converted_file,
+        )
+
+        # ====================================================
+        # VERIFY OUTPUT
+        # ====================================================
+
+        if not converted_file.exists():
+
+            raise ConversionError(
+                "Conversion completed but "
+                "the output file does not exist."
+            )
+
+        if converted_file.stat().st_size == 0:
+
+            raise ConversionError(
+                "The converted file is empty."
+            )
 
         # ====================================================
         # OUTPUT FILENAME
@@ -323,14 +420,8 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
-        # CLOSE UPLOAD
-        # ====================================================
-
-        await file.close()
-
-        # ====================================================
         # MIME TYPE
-        # ====================================================
+        # ========================================================
 
         media_type = MEDIA_TYPES.get(
             target_format,
@@ -338,7 +429,7 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
-        # CLEANUP
+        # CLEANUP AFTER RESPONSE
         # ====================================================
 
         background_tasks.add_task(
@@ -347,8 +438,21 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
-        # RETURN FILE
+        # RETURN BINARY FILE
         # ====================================================
+
+        print("========================================")
+        print("RETURNING FILE TO FRONTEND")
+        print("========================================")
+        print("Output:", converted_file)
+        print("Filename:", output_filename)
+        print(
+            "Size:",
+            converted_file.stat().st_size,
+            "bytes",
+        )
+        print("MIME:", media_type)
+        print("========================================")
 
         return FileResponse(
             path=str(converted_file),
@@ -363,7 +467,10 @@ async def convert_file_endpoint(
 
     except HTTPException:
 
-        await file.close()
+        try:
+            await file.close()
+        except Exception:
+            pass
 
         cleanup_workspace(
             workspace
@@ -377,10 +484,18 @@ async def convert_file_endpoint(
 
     except ConversionError as exc:
 
-        await file.close()
+        try:
+            await file.close()
+        except Exception:
+            pass
 
         cleanup_workspace(
             workspace
+        )
+
+        print(
+            "DocSwitch conversion error:",
+            repr(exc),
         )
 
         raise HTTPException(
@@ -394,15 +509,29 @@ async def convert_file_endpoint(
 
     except Exception as exc:
 
-        await file.close()
+        try:
+            await file.close()
+        except Exception:
+            pass
 
         cleanup_workspace(
             workspace
         )
 
         print(
-            "DocSwitch unexpected conversion error:",
-            repr(exc),
+            "========================================"
+        )
+
+        print(
+            "DOCSWITCH UNEXPECTED ERROR"
+        )
+
+        print(
+            repr(exc)
+        )
+
+        print(
+            "========================================"
         )
 
         raise HTTPException(
