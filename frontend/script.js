@@ -966,26 +966,28 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       console.log("========================================");
 
-      if (!currentOutputBlob || !currentDownloadUrl) {
-        console.error("Download attempted without a valid result.");
+      if (!currentOutputBlob) {
+        console.error("Download attempted without a valid blob.");
+        showError("No converted file available for download.");
         return;
       }
 
-      /*
-       * PROGRAMMATIC DOWNLOAD
-       *
-       * Creating a temporary anchor and clicking it programmatically
-       * is more reliable than relying on the browser to resolve a
-       * dynamically mutated anchor tag, especially when the element
-       * originally had href="#" or conflicting ARIA roles.
-       */
+      if (!currentDownloadUrl) {
+        currentDownloadUrl = URL.createObjectURL(currentOutputBlob);
+      }
+
       const tempLink = document.createElement("a");
       tempLink.href = currentDownloadUrl;
       tempLink.download = currentOutputFilename || "converted-file";
-      tempLink.style.display = "none";
       document.body.appendChild(tempLink);
-      tempLink.click();
-      document.body.removeChild(tempLink);
+
+      try {
+        tempLink.click();
+      } catch (err) {
+        console.error("Programmatic download click failed:", err);
+      } finally {
+        document.body.removeChild(tempLink);
+      }
 
       announce(`Downloading ${currentOutputFilename}.`);
     });
