@@ -1,19 +1,33 @@
 /**
  * ============================================================
- * DocSwitch — Frontend Core Controller
+ * DOCSWITCH — FRONTEND CORE CONTROLLER
  * ============================================================
  *
- * Frontend → Fetch POST → FastAPI → Binary Blob → Download
+ * FLOW
  *
- * POST:
- *   http://127.0.0.1:8000/api/v1/convert
+ * File selection
+ *      ↓
+ * FormData
+ *      ↓
+ * fetch POST
+ *      ↓
+ * FastAPI /api/v1/convert
+ *      ↓
+ * Binary response
+ *      ↓
+ * Blob
+ *      ↓
+ * Object URL
+ *      ↓
+ * Browser download
+ *
+ * BACKEND
+ *
+ * POST http://127.0.0.1:8000/api/v1/convert
  *
  * FormData:
  *   file
  *   target_format
- *
- * Expected response:
- *   Converted binary file
  * ============================================================
  */
 
@@ -26,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const API_ENDPOINT = `${API_BASE_URL}/api/v1/convert`;
 
   const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+  const REQUEST_TIMEOUT_MS = 180000;
 
   const ALLOWED_EXTENSIONS = [
     "pdf",
@@ -44,12 +59,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const ALLOWED_OUTPUT_FORMATS = ["pdf", "docx"];
 
   // ==========================================================
-  // STATE
+  // APPLICATION STATE
   // ==========================================================
 
   let currentFile = null;
+
   let currentOutputBlob = null;
+
   let currentOutputFilename = null;
+
   let currentDownloadUrl = null;
 
   let conversionInProgress = false;
@@ -67,15 +85,19 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const dropZone = document.getElementById("drop-zone");
+
   const fileInput = document.getElementById("file-input");
+
   const browseTrigger = document.getElementById("browse-trigger");
 
   const selectedFileName = document.getElementById("selected-file-name");
+
   const selectedFileSize = document.getElementById("selected-file-size");
 
   const targetFormatSelect = document.getElementById("target-format-select");
 
   const btnRemoveFile = document.getElementById("btn-remove-file");
+
   const btnStartConvert = document.getElementById("btn-start-convert");
 
   const convertingFileName = document.getElementById("converting-file-name");
@@ -99,13 +121,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   console.log("========================================");
-  console.log("DocSwitch frontend initialized.");
-  console.log("API endpoint:", API_ENDPOINT);
-  console.log("Communication:", "FETCH");
+  console.log("DOCSWITCH FRONTEND");
+  console.log("========================================");
+  console.log("API:", API_ENDPOINT);
+  console.log("Communication: FETCH");
   console.log("========================================");
 
   // ==========================================================
-  // REQUIRED DOM CHECK
+  // REQUIRED ELEMENT CHECK
   // ==========================================================
 
   const requiredElements = {
@@ -123,7 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   Object.entries(requiredElements).forEach(([name, element]) => {
     if (!element) {
-      console.error(`DocSwitch: required DOM element missing: #${name}`);
+      console.error(`DocSwitch: missing required element #${name}`);
     }
   });
 
@@ -133,12 +156,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setActiveState(targetState) {
     Object.entries(states).forEach(([key, state]) => {
-      if (!state) return;
+      if (!state) {
+        return;
+      }
 
       const active = key === targetState;
 
       state.classList.toggle("active", active);
-      state.setAttribute("aria-hidden", String(!active));
+
+      /*
+       * Use inert so inactive panels cannot be interacted with.
+       *
+       * Do not use aria-hidden here.
+       * This avoids the browser warning you previously saw
+       * when focus remained inside the hidden upload panel.
+       */
+      state.inert = !active;
     });
 
     console.log("UI state:", targetState);
@@ -149,7 +182,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   function announce(message) {
-    if (!liveRegion) return;
+    if (!liveRegion) {
+      return;
+    }
 
     liveRegion.textContent = "";
 
@@ -180,11 +215,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getFileExtension(filename) {
-    if (!filename) return "";
+    if (!filename) {
+      return "";
+    }
 
     const lastDot = filename.lastIndexOf(".");
 
-    if (lastDot === -1) return "";
+    if (lastDot === -1) {
+      return "";
+    }
 
     return filename
       .slice(lastDot + 1)
@@ -207,17 +246,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function releaseDownloadUrl() {
-    if (currentDownloadUrl) {
-      console.log("Releasing previous object URL:", currentDownloadUrl);
-
-      URL.revokeObjectURL(currentDownloadUrl);
-
-      currentDownloadUrl = null;
+    if (!currentDownloadUrl) {
+      return;
     }
+
+    console.log("Releasing object URL:", currentDownloadUrl);
+
+    URL.revokeObjectURL(currentDownloadUrl);
+
+    currentDownloadUrl = null;
   }
 
   function setProgress(percent) {
-    if (!progressBar) return;
+    if (!progressBar) {
+      return;
+    }
 
     const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
 
@@ -227,7 +270,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function setConvertButtonLoading(isLoading) {
-    if (!btnStartConvert) return;
+    if (!btnStartConvert) {
+      return;
+    }
 
     btnStartConvert.disabled = isLoading;
 
@@ -329,7 +374,8 @@ document.addEventListener("DOMContentLoaded", () => {
         valid: false,
         message:
           `.${extension.toUpperCase()} files are not supported. ` +
-          "Supported formats: PDF, DOCX, DOC, TXT, RTF, PPT, PPTX, JPG, JPEG, PNG and WEBP.",
+          "Supported formats: PDF, DOCX, DOC, TXT, RTF, " +
+          "PPT, PPTX, JPG, JPEG, PNG and WEBP.",
       };
     }
 
@@ -343,9 +389,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return {
         valid: false,
-        message: `File exceeds the maximum upload limit of ${formatBytes(
-          MAX_FILE_SIZE_BYTES,
-        )}.`,
+        message:
+          `File exceeds the maximum upload limit of ` +
+          `${formatBytes(MAX_FILE_SIZE_BYTES)}.`,
       };
     }
 
@@ -375,7 +421,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================
 
   function configureTargetFormat(sourceFormat) {
-    if (!targetFormatSelect) return;
+    if (!targetFormatSelect) {
+      return;
+    }
 
     const pdfSupported = isConversionSupported(sourceFormat, "pdf");
 
@@ -419,8 +467,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function handleFileSelection(file) {
     console.log("========================================");
-    console.log("File selected:", file.name);
-    console.log("File size:", formatBytes(file.size));
+    console.log("FILE SELECTED");
+    console.log("Name:", file?.name);
+    console.log("Size:", formatBytes(file?.size || 0));
     console.log("========================================");
 
     const validation = validateFile(file);
@@ -430,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Clear previous converted file.
+    // Clear previous output.
 
     releaseDownloadUrl();
 
@@ -468,7 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // DROPZONE
+  // DRAG & DROP
   // ==========================================================
 
   if (dropZone) {
@@ -493,16 +542,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     dropZone.addEventListener("drop", (event) => {
-      if (conversionInProgress) return;
+      if (conversionInProgress) {
+        return;
+      }
 
       const files = event.dataTransfer?.files;
 
-      if (files?.length) {
+      if (files && files.length > 0) {
         handleFileSelection(files[0]);
       }
     });
 
     dropZone.addEventListener("click", (event) => {
+      /*
+       * The browse button has its own handler.
+       * Prevent the parent from firing a second click.
+       */
       if (event.target.closest("#browse-trigger")) {
         return;
       }
@@ -524,7 +579,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // BROWSE
+  // BROWSE BUTTON
   // ==========================================================
 
   if (browseTrigger) {
@@ -546,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
     fileInput.addEventListener("change", (event) => {
       const files = event.target.files;
 
-      if (files?.length) {
+      if (files && files.length > 0) {
         handleFileSelection(files[0]);
       }
     });
@@ -570,11 +625,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // START CONVERSION
+  // CONVERT
   // ==========================================================
 
   if (btnStartConvert) {
     btnStartConvert.addEventListener("click", async (event) => {
+      /*
+       * This is a real button.
+       * Prevent default form/browser behavior.
+       */
       event.preventDefault();
       event.stopPropagation();
 
@@ -582,15 +641,21 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("CONVERT BUTTON CLICKED");
       console.log("========================================");
 
-      if (conversionInProgress) {
-        console.warn("Conversion already in progress.");
+      // ----------------------------------------------------
+      // DOUBLE REQUEST PROTECTION
+      // ----------------------------------------------------
 
+      if (conversionInProgress) {
+        console.warn("Conversion already running.");
         return;
       }
 
+      // ----------------------------------------------------
+      // FILE CHECK
+      // ----------------------------------------------------
+
       if (!currentFile) {
         showError("Please select a file first.");
-
         return;
       }
 
@@ -611,7 +676,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!ALLOWED_OUTPUT_FORMATS.includes(targetFormat)) {
         showError("Please select either PDF or DOCX as the output format.");
-
         return;
       }
 
@@ -621,21 +685,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (sourceFormat === targetFormat) {
         showError(
-          `Your file is already in ${targetFormat.toUpperCase()} format. Please choose a different output format.`,
+          `Your file is already in ${targetFormat.toUpperCase()} format.`,
         );
-
         return;
       }
 
       // ----------------------------------------------------
-      // MATRIX CHECK
+      // CAPABILITY
       // ----------------------------------------------------
 
       if (!isConversionSupported(sourceFormat, targetFormat)) {
         showError(
           `Conversion from ${sourceFormat.toUpperCase()} to ${targetFormat.toUpperCase()} is not supported.`,
         );
-
         return;
       }
 
@@ -660,7 +722,7 @@ document.addEventListener("DOMContentLoaded", () => {
       );
 
       // ----------------------------------------------------
-      // BUILD FORMDATA
+      // FORM DATA
       // ----------------------------------------------------
 
       const formData = new FormData();
@@ -669,34 +731,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
       formData.append("target_format", targetFormat);
 
-      console.log("FormData created:", {
-        file: currentFile.name,
-        target_format: targetFormat,
-      });
+      console.log("FormData prepared.");
 
       // ----------------------------------------------------
-      // FETCH → FASTAPI
+      // TIMEOUT
+      // ----------------------------------------------------
+
+      const controller = new AbortController();
+
+      const timeoutId = setTimeout(() => {
+        console.warn("DocSwitch request timed out.");
+
+        controller.abort();
+      }, REQUEST_TIMEOUT_MS);
+
+      // ----------------------------------------------------
+      // FETCH POST
       // ----------------------------------------------------
 
       try {
         console.log("FETCH POST →", API_ENDPOINT);
 
-        setProgress(10);
+        setProgress(15);
 
         const response = await fetch(API_ENDPOINT, {
           method: "POST",
           body: formData,
+          signal: controller.signal,
         });
 
-        console.log("FastAPI response received:", {
+        clearTimeout(timeoutId);
+
+        // --------------------------------------------------
+        // LOG RESPONSE
+        // --------------------------------------------------
+
+        console.log("FASTAPI RESPONSE:", {
           status: response.status,
-          statusText: response.statusText,
+          ok: response.ok,
           contentType: response.headers.get("Content-Type"),
+          contentLength: response.headers.get("Content-Length"),
           contentDisposition: response.headers.get("Content-Disposition"),
         });
 
         // --------------------------------------------------
-        // HANDLE HTTP ERRORS
+        // HTTP ERROR
         // --------------------------------------------------
 
         if (!response.ok) {
@@ -705,7 +784,7 @@ document.addEventListener("DOMContentLoaded", () => {
           try {
             const contentType = response.headers.get("Content-Type") || "";
 
-            if (contentType.includes("application/json")) {
+            if (contentType.toLowerCase().includes("application/json")) {
               const errorData = await response.json();
 
               if (typeof errorData.detail === "string") {
@@ -721,43 +800,37 @@ document.addEventListener("DOMContentLoaded", () => {
               const errorText = await response.text();
 
               if (errorText.trim()) {
-                message = errorText;
+                message = errorText.trim();
               }
             }
           } catch (parseError) {
-            console.error("Could not parse FastAPI error:", parseError);
+            console.error("Unable to parse FastAPI error:", parseError);
           }
 
           throw new Error(message);
         }
 
         // --------------------------------------------------
-        // RESPONSE IS SUCCESSFUL
+        // SUCCESS
         // --------------------------------------------------
+
+        console.log("HTTP 200 received. Reading binary response...");
 
         setProgress(70);
 
-        console.log("Reading FastAPI response as Blob...");
-
         const responseBlob = await response.blob();
 
-        console.log("========================================");
-
-        console.log("CONVERTED FILE RECEIVED");
-
-        console.log({
-          blobType: responseBlob.type,
-          blobSize: responseBlob.size,
+        console.log("BINARY RESPONSE RECEIVED:", {
+          type: responseBlob.type,
+          size: responseBlob.size,
         });
 
-        console.log("========================================");
-
         // --------------------------------------------------
-        // VERIFY BLOB
+        // VERIFY FILE
         // --------------------------------------------------
 
         if (!(responseBlob instanceof Blob)) {
-          throw new Error("The backend response was not a file.");
+          throw new Error("The backend response was not a valid Blob.");
         }
 
         if (responseBlob.size === 0) {
@@ -765,36 +838,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // --------------------------------------------------
-        // STORE BLOB
+        // STORE RESULT
         // --------------------------------------------------
 
         currentOutputBlob = responseBlob;
 
-        // --------------------------------------------------
-        // OUTPUT FILENAME
-        // --------------------------------------------------
-
-        const serverFilename = getFilenameFromDisposition(
-          response.headers.get("Content-Disposition"),
-        );
-
-        currentOutputFilename =
-          serverFilename || `${getBaseName(currentFile.name)}.${targetFormat}`;
+        currentOutputFilename = `${getBaseName(
+          currentFile.name,
+        )}.${targetFormat}`;
 
         console.log("Output filename:", currentOutputFilename);
 
         // --------------------------------------------------
-        // CREATE DOWNLOAD URL
+        // CREATE OBJECT URL
         // --------------------------------------------------
 
         releaseDownloadUrl();
 
         currentDownloadUrl = URL.createObjectURL(currentOutputBlob);
 
-        console.log("Browser object URL created:", currentDownloadUrl);
+        console.log("Object URL created:", currentDownloadUrl);
 
         // --------------------------------------------------
-        // CONFIGURE DOWNLOAD CONTROL
+        // ACTIVATE DOWNLOAD
         // --------------------------------------------------
 
         if (btnDownloadResult) {
@@ -815,7 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           btnDownloadResult.style.cursor = "pointer";
 
-          console.log("Download control configured.");
+          console.log("Download control activated.");
         }
 
         // --------------------------------------------------
@@ -829,7 +895,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // --------------------------------------------------
-        // COMPLETE
+        // SUCCESS STATE
         // --------------------------------------------------
 
         setProgress(100);
@@ -846,13 +912,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.log({
           filename: currentOutputFilename,
-          size: formatBytes(currentOutputBlob.size),
-          type: currentOutputBlob.type,
-          downloadUrl: currentDownloadUrl,
+          bytes: currentOutputBlob.size,
+          mimeType: currentOutputBlob.type,
+          objectUrl: currentDownloadUrl,
         });
 
         console.log("========================================");
       } catch (error) {
+        clearTimeout(timeoutId);
+
         console.error("========================================");
 
         console.error("DOCSWITCH CONVERSION FAILED");
@@ -861,12 +929,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.error("========================================");
 
-        // Fetch throws TypeError on network/CORS
-        // connection failures.
-
-        if (error instanceof TypeError) {
+        if (error?.name === "AbortError") {
           showError(
-            "Could not connect to the DocSwitch backend. Make sure FastAPI is running at http://127.0.0.1:8000 and that CORS is configured correctly.",
+            "The conversion request timed out. Please try again with a smaller or simpler file.",
+          );
+        } else if (error instanceof TypeError) {
+          showError(
+            "Could not communicate with the DocSwitch backend. Check that FastAPI is running on http://127.0.0.1:8000 and that CORS allows this frontend.",
           );
         } else {
           showError(error?.message || "Unable to convert the file.");
@@ -880,77 +949,42 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // EXTRACT FILENAME FROM CONTENT-DISPOSITION
-  // ==========================================================
-
-  function getFilenameFromDisposition(contentDisposition) {
-    if (!contentDisposition) {
-      return null;
-    }
-
-    // filename*=UTF-8''filename.pdf
-    const utf8Match = contentDisposition.match(
-      /filename\*\s*=\s*UTF-8''([^;]+)/i,
-    );
-
-    if (utf8Match?.[1]) {
-      try {
-        return decodeURIComponent(utf8Match[1].trim());
-      } catch {
-        return utf8Match[1].trim();
-      }
-    }
-
-    // filename="filename.pdf"
-    const quotedMatch = contentDisposition.match(/filename\s*=\s*"([^"]+)"/i);
-
-    if (quotedMatch?.[1]) {
-      return quotedMatch[1].trim();
-    }
-
-    // filename=filename.pdf
-    const plainMatch = contentDisposition.match(/filename\s*=\s*([^;]+)/i);
-
-    if (plainMatch?.[1]) {
-      return plainMatch[1].trim().replace(/^["']|["']$/g, "");
-    }
-
-    return null;
-  }
-
-  // ==========================================================
-  // DOWNLOAD RESULT
+  // DOWNLOAD
   // ==========================================================
 
   if (btnDownloadResult) {
-    btnDownloadResult.addEventListener("click", (event) => {
-      if (!currentDownloadUrl || !currentOutputBlob) {
-        event.preventDefault();
-
-        showError("No converted file is currently available.");
-
-        return;
-      }
-
+    btnDownloadResult.addEventListener("click", () => {
       console.log("========================================");
 
       console.log("DOWNLOAD CLICKED");
 
       console.log({
         filename: currentOutputFilename,
-        size: formatBytes(currentOutputBlob.size),
-        type: currentOutputBlob.type,
+        size: currentOutputBlob?.size || 0,
         url: currentDownloadUrl,
       });
 
       console.log("========================================");
 
-      announce(`Downloading ${currentOutputFilename}.`);
+      /*
+       * IMPORTANT:
+       *
+       * There is intentionally NO preventDefault().
+       *
+       * The browser should perform the native
+       * anchor download using:
+       *
+       * href="blob:..."
+       * download="file.pdf"
+       */
 
-      // Do NOT revoke the URL here.
-      //
-      // The browser still needs the object URL
-      // for the download.
+      if (!currentOutputBlob || !currentDownloadUrl) {
+        console.error("Download attempted without a valid result.");
+
+        return;
+      }
+
+      announce(`Downloading ${currentOutputFilename}.`);
     });
   }
 
@@ -963,10 +997,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    console.log("Resetting DocSwitch converter.");
+    console.log("Resetting converter.");
 
     currentFile = null;
+
     currentOutputBlob = null;
+
     currentOutputFilename = null;
 
     releaseDownloadUrl();
@@ -995,16 +1031,24 @@ document.addEventListener("DOMContentLoaded", () => {
       btnDownloadResult.setAttribute("aria-disabled", "true");
 
       btnDownloadResult.style.pointerEvents = "none";
+
+      btnDownloadResult.style.cursor = "default";
     }
 
     setProgress(0);
 
     setConvertButtonLoading(false);
 
+    conversionInProgress = false;
+
     setActiveState("empty");
 
     announce("Converter reset. Please select a file.");
   }
+
+  // ==========================================================
+  // RESET BUTTON
+  // ==========================================================
 
   if (btnResetConverter) {
     btnResetConverter.addEventListener("click", (event) => {
@@ -1016,7 +1060,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // ERROR RETRY
+  // RETRY
   // ==========================================================
 
   if (btnErrorRetry) {
@@ -1041,7 +1085,39 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================
-  // INITIAL STATE
+  // NAVIGATION
+  // ==========================================================
+
+  document.querySelectorAll('a[href^="#"]').forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const targetId = link.getAttribute("href");
+
+      if (!targetId || targetId === "#") {
+        event.preventDefault();
+
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+
+        return;
+      }
+
+      const target = document.querySelector(targetId);
+
+      if (target) {
+        event.preventDefault();
+
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }
+    });
+  });
+
+  // ==========================================================
+  // INITIAL DOWNLOAD STATE
   // ==========================================================
 
   if (btnDownloadResult) {
@@ -1050,7 +1126,12 @@ document.addEventListener("DOMContentLoaded", () => {
     btnDownloadResult.style.pointerEvents = "none";
   }
 
+  // ==========================================================
+  // INITIAL STATE
+  // ==========================================================
+
   setActiveState("empty");
+
   setProgress(0);
 
   console.log("DocSwitch converter ready.");
@@ -1156,14 +1237,11 @@ document.addEventListener("DOMContentLoaded", () => {
     speed: 0.025,
   };
 
-  // --------------------------------------------------------
-  // RESIZE
-  // --------------------------------------------------------
-
   function resizeCanvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     width = window.innerWidth;
+
     height = window.innerHeight;
 
     ambientCanvas.width = width * dpr;
@@ -1176,10 +1254,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-
-  // --------------------------------------------------------
-  // STAR
-  // --------------------------------------------------------
 
   class Star {
     constructor() {
@@ -1273,10 +1347,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --------------------------------------------------------
-  // CREATE STARS
-  // --------------------------------------------------------
-
   function createStars() {
     const count =
       window.innerWidth < 768 ? config.mobileStars : config.desktopStars;
@@ -1288,10 +1358,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --------------------------------------------------------
-  // ANIMATION
-  // --------------------------------------------------------
-
   function animate(time) {
     ctx.clearRect(0, 0, width, height);
 
@@ -1302,10 +1368,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     requestAnimationFrame(animate);
   }
-
-  // --------------------------------------------------------
-  // INITIALIZE
-  // --------------------------------------------------------
 
   resizeCanvas();
 
@@ -1334,7 +1396,9 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("DOMContentLoaded", () => {
   const dropZone = document.getElementById("drop-zone");
 
-  if (!dropZone) return;
+  if (!dropZone) {
+    return;
+  }
 
   dropZone.addEventListener("pointermove", (event) => {
     const rect = dropZone.getBoundingClientRect();
@@ -1352,7 +1416,9 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("DOMContentLoaded", () => {
   const btnStartConvert = document.getElementById("btn-start-convert");
 
-  if (!btnStartConvert) return;
+  if (!btnStartConvert) {
+    return;
+  }
 
   btnStartConvert.addEventListener("pointermove", (event) => {
     const rect = btnStartConvert.getBoundingClientRect();

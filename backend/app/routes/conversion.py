@@ -5,16 +5,12 @@ from uuid import uuid4
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     File,
     Form,
     HTTPException,
     UploadFile,
 )
-
-from fastapi.concurrency import run_in_threadpool
-
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.config import (
     ALLOWED_EXTENSIONS,
@@ -118,26 +114,43 @@ MEDIA_TYPES = {
 # CLEANUP
 # ============================================================
 
-def cleanup_workspace(
-    workspace: Path,
-) -> None:
+def cleanup_workspace(workspace: Path) -> None:
     """
-    Delete a temporary conversion workspace.
+    Delete the temporary conversion workspace.
     """
 
-    try:
+    shutil.rmtree(
+        workspace,
+        ignore_errors=True,
+    )
 
-        shutil.rmtree(
-            workspace,
-            ignore_errors=True,
-        )
+    print(
+        f"DocSwitch workspace cleaned: {workspace}"
+    )
 
-    except Exception as exc:
 
-        print(
-            "DocSwitch cleanup error:",
-            repr(exc),
-        )
+# ============================================================
+# SANITIZE OUTPUT FILENAME
+# ============================================================
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Create a safe browser download filename.
+    """
+
+    name = Path(filename).name
+
+    name = (
+        name
+        .replace('"', "")
+        .replace("\r", "")
+        .replace("\n", "")
+    )
+
+    if not name:
+        name = "converted-file"
+
+    return name
 
 
 # ============================================================
@@ -146,12 +159,12 @@ def cleanup_workspace(
 
 @router.post("")
 async def convert_file_endpoint(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     target_format: str = Form(...),
 ):
     """
-    Convert an uploaded file.
+    Convert an uploaded file and return the converted
+    binary directly to the frontend.
 
     Request:
 
@@ -162,27 +175,29 @@ async def convert_file_endpoint(
 
     Response:
 
-        Converted binary file.
+        Converted PDF or DOCX binary.
     """
 
-    workspace = None
+    print()
+    print("=" * 60)
+    print("DOCSWITCH CONVERSION REQUEST")
+    print("=" * 60)
 
     # ========================================================
-    # VALIDATE FILE NAME
+    # VALIDATE UPLOAD
     # ========================================================
 
     if not file.filename:
-
-        await file.close()
-
         raise HTTPException(
             status_code=400,
             detail="No file selected.",
         )
 
-    original_filename = Path(
-        file.filename
-    ).name
+    original_filename = file.filename
+
+    print(
+        f"Filename: {original_filename}"
+    )
 
     # ========================================================
     # SOURCE FORMAT
@@ -195,17 +210,17 @@ async def convert_file_endpoint(
         .lstrip(".")
     )
 
+    print(
+        f"Source format: {source_format}"
+    )
+
     if source_format not in ALLOWED_EXTENSIONS:
-
-        await file.close()
-
         raise HTTPException(
             status_code=400,
             detail=(
-                f".{source_format.upper()} files "
-                "are not supported. "
-                "Supported formats are PDF, DOCX, DOC, TXT, "
-                "RTF, PPTX, PPT, JPG, JPEG, PNG and WEBP."
+                f".{source_format.upper()} files are not supported. "
+                "Supported formats are PDF, DOCX, DOC, TXT, RTF, "
+                "PPTX, PPT, JPG, JPEG, PNG and WEBP."
             ),
         )
 
@@ -220,15 +235,15 @@ async def convert_file_endpoint(
         .lstrip(".")
     )
 
+    print(
+        f"Requested target: {target_format}"
+    )
+
     if target_format not in ALLOWED_TARGET_FORMATS:
-
-        await file.close()
-
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Conversion to .{target_format} "
-                "is not supported. "
+                f"Conversion to .{target_format} is not supported. "
                 "DocSwitch currently outputs PDF and DOCX."
             ),
         )
@@ -238,9 +253,6 @@ async def convert_file_endpoint(
     # ========================================================
 
     if source_format == target_format:
-
-        await file.close()
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -259,9 +271,6 @@ async def convert_file_endpoint(
     )
 
     if target_format not in allowed_targets:
-
-        await file.close()
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -281,26 +290,20 @@ async def convert_file_endpoint(
         )
     )
 
+    print(
+        f"Workspace: {workspace}"
+    )
+
     input_path = (
         workspace
         / f"{uuid4().hex}.{source_format}"
     )
 
     output_directory = (
-        workspace
-        / "output"
+        workspace / "output"
     )
 
     total_size = 0
-
-    print("========================================")
-    print("DOCSWITCH — CONVERSION REQUEST")
-    print("========================================")
-    print("Filename:", original_filename)
-    print("Source:", source_format)
-    print("Target:", target_format)
-    print("Workspace:", workspace)
-    print("========================================")
 
     try:
 
@@ -308,7 +311,9 @@ async def convert_file_endpoint(
         # SAVE UPLOAD
         # ====================================================
 
-        print("Saving uploaded file...")
+        print(
+            "Saving uploaded file..."
+        )
 
         with input_path.open("wb") as buffer:
 
@@ -323,12 +328,7 @@ async def convert_file_endpoint(
 
                 total_size += len(chunk)
 
-                # --------------------------------------------
-                # SIZE LIMIT
-                # --------------------------------------------
-
                 if total_size > MAX_FILE_SIZE:
-
                     raise HTTPException(
                         status_code=413,
                         detail=(
@@ -340,9 +340,7 @@ async def convert_file_endpoint(
                 buffer.write(chunk)
 
         print(
-            "Upload saved:",
-            total_size,
-            "bytes",
+            f"Upload saved: {total_size} bytes"
         )
 
         # ====================================================
@@ -360,105 +358,171 @@ async def convert_file_endpoint(
         # ====================================================
 
         if not input_path.exists():
-
             raise ConversionError(
                 "Uploaded file could not be saved."
             )
 
         if input_path.stat().st_size == 0:
-
             raise ConversionError(
                 "Uploaded file is empty."
             )
+
+        print(
+            f"Input file verified: {input_path}"
+        )
 
         # ====================================================
         # CONVERT
         # ====================================================
 
-        print("Starting conversion...")
+        print()
+        print("-" * 60)
+        print("STARTING CONVERSION")
+        print("-" * 60)
+
         print(
-            "Running conversion in worker thread."
+            f"Source: {source_format}"
         )
 
-        converted_file = await run_in_threadpool(
-            convert_file,
-            input_path=input_path,
+        print(
+            f"Target: {target_format}"
+        )
+
+        print(
+            f"Input: {input_path}"
+        )
+
+        print(
+            f"Output: {output_directory}"
+        )
+
+        print("-" * 60)
+
+        converted_file = convert_file(
+            input_file=input_path,
             output_directory=output_directory,
             target_format=target_format,
         )
 
-        print(
-            "Conversion completed:",
-            converted_file,
-        )
-
         # ====================================================
-        # VERIFY OUTPUT
+        # VERIFY CONVERTED FILE
         # ====================================================
 
         if not converted_file.exists():
-
             raise ConversionError(
-                "Conversion completed but "
-                "the output file does not exist."
+                "Conversion completed but output file was not found."
             )
 
-        if converted_file.stat().st_size == 0:
-
+        if not converted_file.is_file():
             raise ConversionError(
-                "The converted file is empty."
+                "Conversion output is not a valid file."
             )
+
+        output_size = converted_file.stat().st_size
+
+        if output_size == 0:
+            raise ConversionError(
+                "Conversion produced an empty file."
+            )
+
+        print()
+        print("-" * 60)
+        print("CONVERSION SUCCESSFUL")
+        print("-" * 60)
+
+        print(
+            f"Output: {converted_file}"
+        )
+
+        print(
+            f"Size: {output_size} bytes"
+        )
+
+        print("-" * 60)
+
+        # ====================================================
+        # READ OUTPUT INTO MEMORY
+        # ====================================================
+
+        print(
+            "Reading converted file into memory..."
+        )
+
+        converted_bytes = converted_file.read_bytes()
+
+        if not converted_bytes:
+            raise ConversionError(
+                "Unable to read the converted file."
+            )
+
+        print(
+            f"Binary payload ready: {len(converted_bytes)} bytes"
+        )
 
         # ====================================================
         # OUTPUT FILENAME
         # ====================================================
 
+        safe_original_name = sanitize_filename(
+            original_filename
+        )
+
         output_filename = (
-            Path(original_filename).stem
+            Path(safe_original_name).stem
             + "."
             + target_format
         )
 
+        print(
+            f"Download filename: {output_filename}"
+        )
+
         # ====================================================
         # MIME TYPE
-        # ========================================================
+        # ====================================================
 
         media_type = MEDIA_TYPES.get(
             target_format,
             "application/octet-stream",
         )
 
-        # ====================================================
-        # CLEANUP AFTER RESPONSE
-        # ====================================================
-
-        background_tasks.add_task(
-            cleanup_workspace,
-            workspace,
-        )
-
-        # ====================================================
-        # RETURN BINARY FILE
-        # ====================================================
-
-        print("========================================")
-        print("RETURNING FILE TO FRONTEND")
-        print("========================================")
-        print("Output:", converted_file)
-        print("Filename:", output_filename)
         print(
-            "Size:",
-            converted_file.stat().st_size,
-            "bytes",
+            f"Media type: {media_type}"
         )
-        print("MIME:", media_type)
-        print("========================================")
 
-        return FileResponse(
-            path=str(converted_file),
+        # ====================================================
+        # CLEAN WORKSPACE
+        #
+        # IMPORTANT:
+        #
+        # The converted file has already been loaded
+        # completely into memory.
+        #
+        # Therefore it is now safe to remove the
+        # temporary workspace BEFORE returning.
+        # ====================================================
+
+        cleanup_workspace(workspace)
+
+        # ====================================================
+        # RETURN BINARY DIRECTLY
+        # ====================================================
+
+        print(
+            "Returning converted binary to frontend..."
+        )
+
+        return Response(
+            content=converted_bytes,
             media_type=media_type,
-            filename=output_filename,
-            background=background_tasks,
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{output_filename}"'
+                ),
+                "Content-Length": str(
+                    len(converted_bytes)
+                ),
+            },
         )
 
     # ========================================================
@@ -472,9 +536,7 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(
-            workspace
-        )
+        cleanup_workspace(workspace)
 
         raise
 
@@ -489,9 +551,7 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(
-            workspace
-        )
+        cleanup_workspace(workspace)
 
         print(
             "DocSwitch conversion error:",
@@ -514,24 +574,11 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(
-            workspace
-        )
+        cleanup_workspace(workspace)
 
         print(
-            "========================================"
-        )
-
-        print(
-            "DOCSWITCH UNEXPECTED ERROR"
-        )
-
-        print(
-            repr(exc)
-        )
-
-        print(
-            "========================================"
+            "DocSwitch unexpected conversion error:",
+            repr(exc),
         )
 
         raise HTTPException(
