@@ -1,13 +1,28 @@
 from pathlib import Path
+import shutil
+import tempfile
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
+from fastapi.responses import FileResponse
 
 from app.config import (
     ALLOWED_EXTENSIONS,
     ALLOWED_TARGET_FORMATS,
     MAX_FILE_SIZE,
     TEMP_DIR,
+)
+
+from app.services.converter import (
+    ConversionError,
+    convert_to_pdf,
 )
 
 
@@ -26,7 +41,7 @@ CONVERSION_MATRIX = {
     "docx": {"pdf"},
     "doc": {"pdf"},
     "txt": {"pdf", "docx"},
-    "rtf": {"pdf", "docx"},
+    "rtf": {"pdf"},
     "pptx": {"pdf"},
     "ppt": {"pdf"},
     "jpg": {"pdf"},
@@ -37,22 +52,35 @@ CONVERSION_MATRIX = {
 
 
 # ============================================================
+# CLEANUP
+# ============================================================
+
+def cleanup_workspace(workspace: Path):
+    """
+    Delete the temporary conversion workspace.
+
+    This runs as a FastAPI background task after the
+    FileResponse has finished processing the response.
+    """
+    shutil.rmtree(
+        workspace,
+        ignore_errors=True,
+    )
+
+
+# ============================================================
 # CONVERSION ENDPOINT
 # ============================================================
 
 @router.post("")
 async def convert_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     target_format: str = Form(...),
 ):
-    """
-    Accept and validate a file for conversion.
-
-    Actual conversion will be added in the next phase.
-    """
 
     # --------------------------------------------------------
-    # 1. Validate filename
+    # Validate filename
     # --------------------------------------------------------
 
     if not file.filename:
@@ -62,7 +90,7 @@ async def convert_file(
         )
 
     # --------------------------------------------------------
-    # 2. Extract source extension
+    # Extract source extension
     # --------------------------------------------------------
 
     source_format = (
@@ -82,7 +110,7 @@ async def convert_file(
         )
 
     # --------------------------------------------------------
-    # 3. Normalize target format
+    # Normalize target format
     # --------------------------------------------------------
 
     target_format = (
@@ -102,7 +130,7 @@ async def convert_file(
         )
 
     # --------------------------------------------------------
-    # 4. Check conversion matrix
+    # Check conversion matrix
     # --------------------------------------------------------
 
     allowed_targets = CONVERSION_MATRIX.get(
@@ -114,31 +142,38 @@ async def convert_file(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Conversion from "
-                f".{source_format} to "
-                f".{target_format} is not supported."
+                f"Conversion from .{source_format} "
+                f"to .{target_format} is not supported."
             ),
         )
 
-    # --------------------------------------------------------
-    # 5. Generate isolated temporary filename
-    # --------------------------------------------------------
+    # ========================================================
+    # CREATE ISOLATED CONVERSION WORKSPACE
+    # ========================================================
 
-    temporary_filename = (
-        f"{uuid4().hex}.{source_format}"
+    workspace = Path(
+        tempfile.mkdtemp(
+            prefix="docswitch_",
+            dir=TEMP_DIR,
+        )
     )
 
-    temporary_path = TEMP_DIR / temporary_filename
+    input_path = (
+        workspace
+        / f"{uuid4().hex}.{source_format}"
+    )
+
+    output_directory = workspace / "output"
 
     total_size = 0
 
-    # --------------------------------------------------------
-    # 6. Stream upload to disk
-    # --------------------------------------------------------
-
     try:
 
-        with temporary_path.open("wb") as buffer:
+        # ----------------------------------------------------
+        # Save uploaded file
+        # ----------------------------------------------------
+
+        with input_path.open("wb") as buffer:
 
             while True:
 
@@ -150,11 +185,10 @@ async def convert_file(
                 total_size += len(chunk)
 
                 # --------------------------------------------
-                # Enforce 25 MB limit while receiving data
+                # Enforce upload size during streaming
                 # --------------------------------------------
 
                 if total_size > MAX_FILE_SIZE:
-
                     raise HTTPException(
                         status_code=413,
                         detail=(
@@ -165,31 +199,97 @@ async def convert_file(
 
                 buffer.write(chunk)
 
+        # ----------------------------------------------------
+        # Conversion
+        # ----------------------------------------------------
+
+        if target_format == "pdf":
+
+            converted_file = convert_to_pdf(
+                input_file=input_path,
+                output_directory=output_directory,
+            )
+
+        else:
+
+            raise ConversionError(
+                "This conversion is not implemented yet."
+            )
+
+        # ----------------------------------------------------
+        # Prepare download filename
+        # ----------------------------------------------------
+
+        output_filename = (
+            Path(file.filename).stem
+            + "."
+            + target_format
+        )
+
+        # ----------------------------------------------------
+        # Close uploaded file
+        # ----------------------------------------------------
+
+        await file.close()
+
+        # ----------------------------------------------------
+        # Schedule workspace cleanup
+        #
+        # IMPORTANT:
+        # Do NOT delete the workspace here.
+        #
+        # FileResponse still needs access to converted_file.
+        # FastAPI will execute this background task after
+        # the response has been processed.
+        # ----------------------------------------------------
+
+        background_tasks.add_task(
+            cleanup_workspace,
+            workspace,
+        )
+
+        # ----------------------------------------------------
+        # Return converted file
+        # ----------------------------------------------------
+
+        return FileResponse(
+            path=converted_file,
+            media_type="application/pdf",
+            filename=output_filename,
+            background=background_tasks,
+        )
+
     except HTTPException:
-        temporary_path.unlink(missing_ok=True)
+
+        await file.close()
+
+        # The response will not be sent successfully,
+        # so cleanup can happen immediately.
+        cleanup_workspace(workspace)
+
         raise
 
-    except Exception as exc:
+    except ConversionError as exc:
 
-        temporary_path.unlink(missing_ok=True)
+        await file.close()
+
+        cleanup_workspace(workspace)
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to receive uploaded file.",
+            detail=str(exc),
         ) from exc
 
-    finally:
+    except Exception as exc:
+
         await file.close()
 
-    # --------------------------------------------------------
-    # TEMPORARY RESPONSE
-    # --------------------------------------------------------
+        cleanup_workspace(workspace)
 
-    return {
-        "status": "accepted",
-        "filename": file.filename,
-        "source_format": source_format,
-        "target_format": target_format,
-        "size": total_size,
-        "temporary_file": temporary_filename,
-    }
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "An unexpected error occurred "
+                "during conversion."
+            ),
+        ) from exc

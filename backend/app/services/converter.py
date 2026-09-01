@@ -1,7 +1,7 @@
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
-import uuid
 
 
 # ============================================================
@@ -19,12 +19,12 @@ class ConversionError(Exception):
     """Raised when a file conversion fails."""
 
 
-def convert_to_pdf(input_file: Path) -> Path:
+def convert_to_pdf(input_file: Path, output_directory: Path) -> Path:
     """
-    Convert a supported document to PDF using LibreOffice.
+    Convert a document to PDF using LibreOffice.
 
-    Returns:
-        Path: Path to the generated PDF.
+    The caller owns the temporary workspace and is responsible
+    for deleting it after the conversion lifecycle is complete.
     """
 
     if not input_file.exists():
@@ -35,31 +35,22 @@ def convert_to_pdf(input_file: Path) -> Path:
             "LibreOffice installation could not be found."
         )
 
-    # --------------------------------------------------------
-    # Create an isolated temporary output directory
-    # --------------------------------------------------------
-
-    output_directory = Path(
-        tempfile.mkdtemp(
-            prefix=f"docswitch_{uuid.uuid4().hex}_"
-        )
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
+    command = [
+        str(LIBREOFFICE_PATH),
+        "--headless",
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        str(output_directory),
+        str(input_file),
+    ]
+
     try:
-        command = [
-            str(LIBREOFFICE_PATH),
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(output_directory),
-            str(input_file),
-        ]
-
-        # ----------------------------------------------------
-        # Execute LibreOffice
-        # ----------------------------------------------------
-
         result = subprocess.run(
             command,
             capture_output=True,
@@ -68,53 +59,39 @@ def convert_to_pdf(input_file: Path) -> Path:
             check=False,
         )
 
-        # ----------------------------------------------------
-        # Check LibreOffice process
-        # ----------------------------------------------------
-
-        if result.returncode != 0:
-            error_message = (
-                result.stderr.strip()
-                or result.stdout.strip()
-                or "LibreOffice failed to convert the file."
-            )
-
-            raise ConversionError(error_message)
-
-        # ----------------------------------------------------
-        # Determine expected output filename
-        # ----------------------------------------------------
-
-        output_file = (
-            output_directory
-            / f"{input_file.stem}.pdf"
-        )
-
-        # ----------------------------------------------------
-        # Verify conversion actually produced a file
-        # ----------------------------------------------------
-
-        if not output_file.exists():
-            raise ConversionError(
-                "Conversion completed but no PDF was produced."
-            )
-
-        if output_file.stat().st_size == 0:
-            raise ConversionError(
-                "LibreOffice produced an empty PDF."
-            )
-
-        return output_file
-
     except subprocess.TimeoutExpired as exc:
         raise ConversionError(
-            "Conversion timed out. Please try a smaller or simpler file."
+            "Conversion timed out. Please try a smaller "
+            "or simpler file."
         ) from exc
-
-    except ConversionError:
-        raise
 
     except Exception as exc:
         raise ConversionError(
-            "An unexpected error occurred during conversion."
+            "Unable to start the conversion engine."
         ) from exc
+
+    if result.returncode != 0:
+        error_message = (
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "LibreOffice failed to convert the file."
+        )
+
+        raise ConversionError(error_message)
+
+    output_file = (
+        output_directory
+        / f"{input_file.stem}.pdf"
+    )
+
+    if not output_file.exists():
+        raise ConversionError(
+            "Conversion completed but no PDF was produced."
+        )
+
+    if output_file.stat().st_size == 0:
+        raise ConversionError(
+            "LibreOffice produced an empty PDF."
+        )
+
+    return output_file
