@@ -492,14 +492,6 @@ async def convert_file_endpoint(
 
         # ====================================================
         # CLEAN WORKSPACE
-        #
-        # IMPORTANT:
-        #
-        # The converted file has already been loaded
-        # completely into memory.
-        #
-        # Therefore it is now safe to remove the
-        # temporary workspace BEFORE returning.
         # ====================================================
 
         cleanup_workspace(workspace)
