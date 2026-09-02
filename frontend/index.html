@@ -310,15 +310,16 @@
               </div>
 
               <div class="action-stack">
-                <a
+                <button
                   class="btn-primary btn-download"
                   id="btn-download-result"
-                  href="#"
-                  download
+                  type="button"
+                  disabled
+                  aria-disabled="true"
                 >
                   Download file
                   <span>↓</span>
-                </a>
+                </button>
                 <button
                   class="btn-tertiary"
                   id="btn-reset-converter"
@@ -391,7 +392,7 @@
 
           <span>
             Your files are securely processed and automatically removed after
-            conversion.
+            download.
           </span>
         </div>
 
@@ -646,8 +647,8 @@
             </summary>
 
             <p>
-              Files are processed for conversion and are intended to be
-              automatically removed after processing.
+              Files are processed for conversion and are automatically removed
+              after the converted file is downloaded.
             </p>
           </details>
         </div>

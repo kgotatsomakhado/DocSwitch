@@ -5,12 +5,13 @@ from uuid import uuid4
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     File,
     Form,
     HTTPException,
     UploadFile,
 )
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 
 from app.config import (
     ALLOWED_EXTENSIONS,
@@ -116,8 +117,11 @@ MEDIA_TYPES = {
 
 def cleanup_workspace(workspace: Path) -> None:
     """
-    Delete the temporary conversion workspace.
+    Delete a temporary DocSwitch conversion workspace.
     """
+
+    if not workspace.exists():
+        return
 
     shutil.rmtree(
         workspace,
@@ -163,25 +167,31 @@ async def convert_file_endpoint(
     target_format: str = Form(...),
 ):
     """
-    Convert an uploaded file and return the converted
-    binary directly to the frontend.
+    Convert an uploaded file.
 
-    Request:
-
-        multipart/form-data
-
-        file
-        target_format
+    The converted file remains in the temporary workspace.
 
     Response:
 
-        Converted PDF or DOCX binary.
+        {
+            "success": true,
+            "conversion_id": "...",
+            "filename": "...",
+            "target_format": "pdf",
+            "size": 123456,
+            "download_url": "/api/v1/convert/download/..."
+        }
+
+    The frontend uses download_url to retrieve the
+    converted file through the download endpoint.
     """
 
     print()
     print("=" * 60)
     print("DOCSWITCH CONVERSION REQUEST")
     print("=" * 60)
+
+    workspace = None
 
     # ========================================================
     # VALIDATE UPLOAD
@@ -290,8 +300,14 @@ async def convert_file_endpoint(
         )
     )
 
+    conversion_id = workspace.name
+
     print(
         f"Workspace: {workspace}"
+    )
+
+    print(
+        f"Conversion ID: {conversion_id}"
     )
 
     input_path = (
@@ -441,25 +457,6 @@ async def convert_file_endpoint(
         print("-" * 60)
 
         # ====================================================
-        # READ OUTPUT INTO MEMORY
-        # ====================================================
-
-        print(
-            "Reading converted file into memory..."
-        )
-
-        converted_bytes = converted_file.read_bytes()
-
-        if not converted_bytes:
-            raise ConversionError(
-                "Unable to read the converted file."
-            )
-
-        print(
-            f"Binary payload ready: {len(converted_bytes)} bytes"
-        )
-
-        # ====================================================
         # OUTPUT FILENAME
         # ====================================================
 
@@ -478,6 +475,45 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
+        # RENAME OUTPUT TO FINAL DOWNLOAD NAME
+        # ====================================================
+
+        final_output_path = (
+            output_directory
+            / output_filename
+        )
+
+        if converted_file != final_output_path:
+            if final_output_path.exists():
+                final_output_path.unlink()
+
+            converted_file.rename(
+                final_output_path
+            )
+
+        print(
+            f"Final output path: {final_output_path}"
+        )
+
+        # ====================================================
+        # VERIFY FINAL OUTPUT
+        # ====================================================
+
+        if not final_output_path.exists():
+            raise ConversionError(
+                "Converted file could not be prepared for download."
+            )
+
+        final_output_size = (
+            final_output_path.stat().st_size
+        )
+
+        if final_output_size == 0:
+            raise ConversionError(
+                "Final converted file is empty."
+            )
+
+        # ====================================================
         # MIME TYPE
         # ====================================================
 
@@ -491,31 +527,58 @@ async def convert_file_endpoint(
         )
 
         # ====================================================
-        # CLEAN WORKSPACE
+        # IMPORTANT:
+        # DO NOT DELETE THE WORKSPACE HERE.
+        #
+        # The file must remain available for the frontend's
+        # subsequent GET download request.
         # ====================================================
 
-        cleanup_workspace(workspace)
+        download_url = (
+            f"/api/v1/convert/download/"
+            f"{conversion_id}"
+        )
 
-        # ====================================================
-        # RETURN BINARY DIRECTLY
-        # ====================================================
+        print()
+        print("-" * 60)
+        print("CONVERSION ARTIFACT READY")
+        print("-" * 60)
 
         print(
-            "Returning converted binary to frontend..."
+            f"Conversion ID: {conversion_id}"
         )
 
-        return Response(
-            content=converted_bytes,
-            media_type=media_type,
-            headers={
-                "Content-Disposition": (
-                    f'attachment; filename="{output_filename}"'
-                ),
-                "Content-Length": str(
-                    len(converted_bytes)
-                ),
-            },
+        print(
+            f"Filename: {output_filename}"
         )
+
+        print(
+            f"Path: {final_output_path}"
+        )
+
+        print(
+            f"Size: {final_output_size} bytes"
+        )
+
+        print(
+            f"Download URL: {download_url}"
+        )
+
+        print("-" * 60)
+
+        # ====================================================
+        # RETURN JSON
+        # ====================================================
+
+        return {
+            "success": True,
+            "conversion_id": conversion_id,
+            "filename": output_filename,
+            "target_format": target_format,
+            "size": final_output_size,
+            "media_type": media_type,
+            "download_url": download_url,
+        }
 
     # ========================================================
     # HTTP ERRORS
@@ -528,7 +591,8 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(workspace)
+        if workspace:
+            cleanup_workspace(workspace)
 
         raise
 
@@ -543,7 +607,8 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(workspace)
+        if workspace:
+            cleanup_workspace(workspace)
 
         print(
             "DocSwitch conversion error:",
@@ -566,7 +631,8 @@ async def convert_file_endpoint(
         except Exception:
             pass
 
-        cleanup_workspace(workspace)
+        if workspace:
+            cleanup_workspace(workspace)
 
         print(
             "DocSwitch unexpected conversion error:",
@@ -580,3 +646,206 @@ async def convert_file_endpoint(
                 "during conversion."
             ),
         ) from exc
+
+
+# ============================================================
+# DOWNLOAD ENDPOINT
+# ============================================================
+
+@router.get("/download/{conversion_id}")
+async def download_converted_file(
+    conversion_id: str,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Download a previously converted file.
+
+    The conversion workspace is deleted after FastAPI
+    finishes sending the file to the client.
+    """
+
+    print()
+    print("=" * 60)
+    print("DOCSWITCH DOWNLOAD REQUEST")
+    print("=" * 60)
+
+    print(
+        f"Conversion ID: {conversion_id}"
+    )
+
+    # ========================================================
+    # VALIDATE CONVERSION ID
+    # ========================================================
+
+    if not conversion_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid conversion ID.",
+        )
+
+    # Prevent path traversal and unexpected characters.
+    if (
+        Path(conversion_id).name != conversion_id
+        or not conversion_id.startswith("docswitch_")
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid conversion ID.",
+        )
+
+    # ========================================================
+    # RESOLVE WORKSPACE
+    # ========================================================
+
+    workspace = (
+        TEMP_DIR / conversion_id
+    )
+
+    # ========================================================
+    # VERIFY WORKSPACE
+    # ========================================================
+
+    if not workspace.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "The converted file could not be found. "
+                "It may have already been downloaded or expired."
+            ),
+        )
+
+    if not workspace.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail="Conversion workspace was not found.",
+        )
+
+    # ========================================================
+    # OUTPUT DIRECTORY
+    # ========================================================
+
+    output_directory = (
+        workspace / "output"
+    )
+
+    if not output_directory.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Converted output was not found.",
+        )
+
+    # ========================================================
+    # FIND CONVERTED FILE
+    # ========================================================
+
+    output_files = [
+        path
+        for path in output_directory.iterdir()
+        if path.is_file()
+        and path.suffix.lower() in {
+            ".pdf",
+            ".docx",
+        }
+    ]
+
+    if not output_files:
+        raise HTTPException(
+            status_code=404,
+            detail="No converted file is available for download.",
+        )
+
+    # ========================================================
+    # EXPECT EXACTLY ONE OUTPUT
+    # ========================================================
+
+    if len(output_files) > 1:
+        print(
+            "Warning: multiple converted files found:",
+            output_files,
+        )
+
+    converted_file = output_files[0]
+
+    print(
+        f"Download file: {converted_file}"
+    )
+
+    # ========================================================
+    # VERIFY FILE
+    # ========================================================
+
+    if not converted_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Converted file no longer exists.",
+        )
+
+    if not converted_file.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Converted output is not a valid file.",
+        )
+
+    file_size = converted_file.stat().st_size
+
+    if file_size == 0:
+        raise HTTPException(
+            status_code=500,
+            detail="Converted file is empty.",
+        )
+
+    # ========================================================
+    # MIME TYPE
+    # ========================================================
+
+    extension = (
+        converted_file.suffix
+        .lower()
+        .lstrip(".")
+    )
+
+    media_type = MEDIA_TYPES.get(
+        extension,
+        "application/octet-stream",
+    )
+
+    # ========================================================
+    # CLEANUP AFTER DOWNLOAD
+    # ========================================================
+
+    background_tasks.add_task(
+        cleanup_workspace,
+        workspace,
+    )
+
+    print(
+        f"Size: {file_size} bytes"
+    )
+
+    print(
+        f"Media type: {media_type}"
+    )
+
+    print(
+        "FileResponse prepared."
+    )
+
+    print(
+        "Workspace scheduled for cleanup "
+        "after download completes."
+    )
+
+    print(
+        "=" * 60
+    )
+
+    # ========================================================
+    # RETURN FILE
+    # ========================================================
+
+    return FileResponse(
+        path=converted_file,
+        media_type=media_type,
+        filename=converted_file.name,
+        background=background_tasks,
+    )
