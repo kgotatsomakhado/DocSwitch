@@ -18,6 +18,11 @@ try:
 except ImportError:
     PDF2DOCXConverter = None
 
+try:
+    from docx2pdf import convert as docx2pdf_convert
+except ImportError:
+    docx2pdf_convert = None
+
 
 # ============================================================
 # DOCSWITCH CONVERSION ENGINE
@@ -71,29 +76,25 @@ def find_libreoffice() -> Optional[Path]:
     Locate LibreOffice on the current machine.
 
     Priority:
-
     1. DOCSWITCH_LIBREOFFICE_PATH
     2. Standard Windows installation
     3. PATH
     """
-
-    # --------------------------------------------------------
-    # Environment variable
-    # --------------------------------------------------------
 
     configured_path = os.getenv(
         "DOCSWITCH_LIBREOFFICE_PATH"
     )
 
     if configured_path:
-        configured = Path(configured_path)
+        configured = Path(
+            configured_path
+        )
 
-        if configured.exists() and configured.is_file():
+        if (
+            configured.exists()
+            and configured.is_file()
+        ):
             return configured
-
-    # --------------------------------------------------------
-    # Windows
-    # --------------------------------------------------------
 
     windows_paths = [
         Path(
@@ -105,19 +106,22 @@ def find_libreoffice() -> Optional[Path]:
     ]
 
     for path in windows_paths:
-        if path.exists() and path.is_file():
+        if (
+            path.exists()
+            and path.is_file()
+        ):
             return path
 
-    # --------------------------------------------------------
-    # PATH
-    # --------------------------------------------------------
-
-    executable = shutil.which("soffice")
+    executable = shutil.which(
+        "soffice"
+    )
 
     if executable:
         return Path(executable)
 
-    executable = shutil.which("libreoffice")
+    executable = shutil.which(
+        "libreoffice"
+    )
 
     if executable:
         return Path(executable)
@@ -129,7 +133,9 @@ def find_libreoffice() -> Optional[Path]:
 # VALIDATE INPUT
 # ============================================================
 
-def validate_input(input_file: Path) -> None:
+def validate_input(
+    input_file: Path,
+) -> None:
     """
     Validate input file.
     """
@@ -165,7 +171,9 @@ def validate_input(input_file: Path) -> None:
 # VALIDATE OUTPUT
 # ============================================================
 
-def validate_output(output_file: Path) -> Path:
+def validate_output(
+    output_file: Path,
+) -> Path:
     """
     Verify that conversion created a usable file.
     """
@@ -189,7 +197,7 @@ def validate_output(output_file: Path) -> Path:
 
 
 # ============================================================
-# LIBREOFFICE CONVERSION
+# LIBREOFFICE — GENERIC CONVERSION
 # ============================================================
 
 def run_libreoffice(
@@ -198,11 +206,10 @@ def run_libreoffice(
     target_format: str,
 ) -> Path:
     """
-    Convert an Office/document file using LibreOffice.
+    Convert a document using LibreOffice.
 
-    A unique LibreOffice user profile is created for every
-    conversion. This prevents profile locking and conflicts
-    between multiple LibreOffice processes.
+    Used for generic Office/document conversions and as the
+    DOCX → PDF fallback when Microsoft Word is unavailable.
     """
 
     libreoffice = find_libreoffice()
@@ -213,6 +220,9 @@ def run_libreoffice(
             "Install LibreOffice and make sure soffice.exe "
             "is available."
         )
+
+    input_file = input_file.resolve()
+    output_directory = output_directory.resolve()
 
     output_directory.mkdir(
         parents=True,
@@ -226,61 +236,30 @@ def run_libreoffice(
         .lstrip(".")
     )
 
-    # --------------------------------------------------------
-    # Unique temporary LibreOffice profile
-    # --------------------------------------------------------
-
-    profile_directory = (
-        output_directory
-        / "_libreoffice_profile"
-    )
-
-    profile_directory.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    # LibreOffice requires a file URL for UserInstallation.
-    profile_url = profile_directory.resolve().as_uri()
-
-    # --------------------------------------------------------
-    # Command
-    # --------------------------------------------------------
-
     command = [
         str(libreoffice),
-
         "--headless",
-
         "--invisible",
-
         "--nodefault",
-
         "--nologo",
-
         "--nofirststartwizard",
-
-        f"-env:UserInstallation={profile_url}",
-
         "--convert-to",
         target_format,
-
         "--outdir",
         str(output_directory),
-
         str(input_file),
     ]
 
-    print("------------------------------------------------------------")
+    print("-" * 60)
     print("DocSwitch LibreOffice conversion")
+    print("-" * 60)
     print("Executable:", libreoffice)
     print("Input:", input_file)
     print("Output directory:", output_directory)
     print("Target format:", target_format)
-    print("------------------------------------------------------------")
+    print("-" * 60)
 
     try:
-
         result = subprocess.run(
             command,
             capture_output=True,
@@ -290,39 +269,30 @@ def run_libreoffice(
         )
 
     except subprocess.TimeoutExpired as exc:
-
         raise ConversionError(
             "LibreOffice conversion timed out after "
             f"{CONVERSION_TIMEOUT} seconds."
         ) from exc
 
     except FileNotFoundError as exc:
-
         raise ConversionError(
             "LibreOffice executable could not be started."
         ) from exc
 
     except PermissionError as exc:
-
         raise ConversionError(
             "Permission was denied while starting LibreOffice."
         ) from exc
 
     except OSError as exc:
-
         raise ConversionError(
             "Unable to start LibreOffice."
         ) from exc
 
     except Exception as exc:
-
         raise ConversionError(
             f"Unexpected LibreOffice error: {exc}"
         ) from exc
-
-    # --------------------------------------------------------
-    # DEBUG OUTPUT
-    # --------------------------------------------------------
 
     stdout = (
         result.stdout.strip()
@@ -336,60 +306,192 @@ def run_libreoffice(
         else ""
     )
 
-    print("LibreOffice return code:", result.returncode)
+    print(
+        "LibreOffice return code:",
+        result.returncode,
+    )
 
     if stdout:
-        print("LibreOffice stdout:")
+        print(
+            "LibreOffice stdout:"
+        )
         print(stdout)
 
     if stderr:
-        print("LibreOffice stderr:")
+        print(
+            "LibreOffice stderr:"
+        )
         print(stderr)
 
-    # --------------------------------------------------------
-    # Process failed
-    # --------------------------------------------------------
-
     if result.returncode != 0:
-
-        error_message = (
+        raise ConversionError(
             stderr
             or stdout
             or "LibreOffice failed to convert the file."
         )
-
-        raise ConversionError(
-            error_message
-        )
-
-    # --------------------------------------------------------
-    # Expected output
-    # --------------------------------------------------------
 
     output_file = (
         output_directory
         / f"{input_file.stem}.{target_format}"
     )
 
-    # --------------------------------------------------------
-    # Sometimes LibreOffice reports success but the expected
-    # file does not exist. Search the output directory before
-    # declaring failure.
-    # --------------------------------------------------------
-
     if not output_file.exists():
 
         candidates = [
             path
             for path in output_directory.iterdir()
-            if path.is_file()
-            and path.suffix.lower() == f".{target_format}"
+            if (
+                path.is_file()
+                and path.suffix.lower()
+                == f".{target_format}"
+            )
         ]
 
         if len(candidates) == 1:
             output_file = candidates[0]
 
-    return validate_output(output_file)
+    return validate_output(
+        output_file
+    )
+
+
+# ============================================================
+# DOCX → PDF — MICROSOFT WORD
+# ============================================================
+
+def docx_to_pdf_with_word(
+    input_file: Path,
+    output_directory: Path,
+) -> Path:
+    """
+    Convert DOCX to PDF using Microsoft Word through docx2pdf.
+
+    This is the preferred DOCX → PDF renderer on Windows
+    because Microsoft Word is the native application for DOCX.
+
+    Raises ConversionError when Word/docx2pdf cannot perform
+    the conversion.
+    """
+
+    if os.name != "nt":
+        raise ConversionError(
+            "Microsoft Word DOCX → PDF conversion is only "
+            "available on Windows."
+        )
+
+    if docx2pdf_convert is None:
+        raise ConversionError(
+            "docx2pdf is not installed."
+        )
+
+    output_directory = (
+        output_directory.resolve()
+    )
+
+    input_file = (
+        input_file.resolve()
+    )
+
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    output_file = (
+        output_directory
+        / f"{input_file.stem}.pdf"
+    )
+
+    print("-" * 60)
+    print("DocSwitch DOCX → PDF")
+    print("-" * 60)
+    print("Engine: Microsoft Word")
+    print("Library: docx2pdf")
+    print("Input:", input_file)
+    print("Output:", output_file)
+    print("-" * 60)
+
+    try:
+        docx2pdf_convert(
+            str(input_file),
+            str(output_file),
+        )
+
+    except Exception as exc:
+        print(
+            "Microsoft Word DOCX → PDF failed:"
+        )
+        print(
+            repr(exc)
+        )
+
+        raise ConversionError(
+            "Microsoft Word could not convert the DOCX to PDF."
+        ) from exc
+
+    return validate_output(
+        output_file
+    )
+
+
+# ============================================================
+# DOCX → PDF — SMART ROUTER
+# ============================================================
+
+def docx_to_pdf(
+    input_file: Path,
+    output_directory: Path,
+) -> Path:
+    """
+    Convert DOCX to PDF.
+
+    Windows strategy:
+        1. Microsoft Word via docx2pdf
+        2. LibreOffice fallback
+
+    Non-Windows strategy:
+        LibreOffice
+    """
+
+    # --------------------------------------------------------
+    # Windows → Microsoft Word first
+    # --------------------------------------------------------
+
+    if (
+        os.name == "nt"
+        and docx2pdf_convert is not None
+    ):
+        try:
+            return docx_to_pdf_with_word(
+                input_file=input_file,
+                output_directory=output_directory,
+            )
+
+        except ConversionError as word_error:
+
+            print()
+            print(
+                "Microsoft Word conversion unavailable."
+            )
+
+            print(
+                "Reason:",
+                word_error,
+            )
+
+            print(
+                "Falling back to LibreOffice..."
+            )
+
+    # --------------------------------------------------------
+    # LibreOffice fallback
+    # --------------------------------------------------------
+
+    return run_libreoffice(
+        input_file=input_file,
+        output_directory=output_directory,
+        target_format="pdf",
+    )
 
 
 # ============================================================
@@ -413,9 +515,13 @@ def image_to_pdf(
 
     try:
 
-        with Image.open(input_file) as image:
+        with Image.open(
+            input_file
+        ) as image:
 
-            rgb_image = image.convert("RGB")
+            rgb_image = image.convert(
+                "RGB"
+            )
 
             rgb_image.save(
                 output_file,
@@ -429,7 +535,9 @@ def image_to_pdf(
             "Unable to convert the image to PDF."
         ) from exc
 
-    return validate_output(output_file)
+    return validate_output(
+        output_file
+    )
 
 
 # ============================================================
@@ -463,32 +571,50 @@ def image_to_docx(
             - section.right_margin
         )
 
-        with Image.open(input_file) as image:
+        with Image.open(
+            input_file
+        ) as image:
 
-            width_px, height_px = image.size
+            width_px, height_px = (
+                image.size
+            )
 
-            if width_px <= 0 or height_px <= 0:
+            if (
+                width_px <= 0
+                or height_px <= 0
+            ):
                 raise ConversionError(
                     "The image dimensions are invalid."
                 )
 
-            aspect_ratio = height_px / width_px
+            aspect_ratio = (
+                height_px
+                / width_px
+            )
 
             width_inches = (
-                available_width / 914400
+                available_width
+                / 914400
             )
 
             height_inches = (
-                width_inches * aspect_ratio
+                width_inches
+                * aspect_ratio
             )
 
             document.add_picture(
                 str(input_file),
-                width=Inches(width_inches),
-                height=Inches(height_inches),
+                width=Inches(
+                    width_inches
+                ),
+                height=Inches(
+                    height_inches
+                ),
             )
 
-        document.save(output_file)
+        document.save(
+            output_file
+        )
 
     except ConversionError:
         raise
@@ -499,7 +625,9 @@ def image_to_docx(
             "Unable to convert the image to DOCX."
         ) from exc
 
-    return validate_output(output_file)
+    return validate_output(
+        output_file
+    )
 
 
 # ============================================================
@@ -512,7 +640,6 @@ def pdf_to_docx(
 ) -> Path:
 
     if PDF2DOCXConverter is None:
-
         raise ConversionError(
             "PDF to DOCX support is unavailable. "
             "Install pdf2docx."
@@ -556,11 +683,12 @@ def pdf_to_docx(
 
             try:
                 converter.close()
-
             except Exception:
                 pass
 
-    return validate_output(output_file)
+    return validate_output(
+        output_file
+    )
 
 
 # ============================================================
@@ -573,7 +701,6 @@ def render_pdf_pages(
 ) -> list[Path]:
 
     if fitz is None:
-
         raise ConversionError(
             "PDF rendering support is unavailable. "
             "Install PyMuPDF."
@@ -594,7 +721,9 @@ def render_pdf_pages(
 
         try:
 
-            for page_number in range(len(pdf)):
+            for page_number in range(
+                len(pdf)
+            ):
 
                 page = pdf.load_page(
                     page_number
@@ -694,20 +823,27 @@ def pdf_to_visual_docx(
         )
 
         width_inches = (
-            available_width / 914400
+            available_width
+            / 914400
         )
 
-        for index, page_path in enumerate(pages):
+        for index, page_path in enumerate(
+            pages
+        ):
 
             if index > 0:
                 document.add_page_break()
 
             document.add_picture(
                 str(page_path),
-                width=Inches(width_inches),
+                width=Inches(
+                    width_inches
+                ),
             )
 
-        document.save(output_file)
+        document.save(
+            output_file
+        )
 
     except Exception as exc:
 
@@ -715,7 +851,9 @@ def pdf_to_visual_docx(
             "Unable to create the DOCX document from the PDF."
         ) from exc
 
-    return validate_output(output_file)
+    return validate_output(
+        output_file
+    )
 
 
 # ============================================================
@@ -726,6 +864,13 @@ def office_to_pdf(
     input_file: Path,
     output_directory: Path,
 ) -> Path:
+
+    if input_file.suffix.lower() == ".docx":
+
+        return docx_to_pdf(
+            input_file=input_file,
+            output_directory=output_directory,
+        )
 
     return run_libreoffice(
         input_file=input_file,
@@ -785,7 +930,9 @@ def convert_file(
     target_format: str,
 ) -> Path:
 
-    validate_input(input_file)
+    validate_input(
+        input_file
+    )
 
     target_format = (
         target_format
@@ -840,7 +987,7 @@ def convert_file(
         and target_format == "pdf"
     ):
 
-        return office_to_pdf(
+        return docx_to_pdf(
             input_file=input_file,
             output_directory=output_directory,
         )
