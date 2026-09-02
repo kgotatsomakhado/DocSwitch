@@ -38,6 +38,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let outputFilename = null;
   let converting = false;
 
+  // Tracks whether the one-time download has already been used.
+  let downloadConsumed = false;
+
   // ==========================================================
   // DOM
   // ==========================================================
@@ -232,7 +235,15 @@ document.addEventListener("DOMContentLoaded", () => {
     downloadUrl = null;
     outputFilename = null;
 
+    // New file = new download opportunity.
+    downloadConsumed = false;
+
     setDownloadEnabled(false);
+
+    // Restore original download button label.
+    if (btnDownloadResult) {
+      btnDownloadResult.textContent = "Download";
+    }
 
     selectedFileName.textContent = file.name;
 
@@ -483,6 +494,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       outputFilename = result.filename;
 
+      // New converted file = download available.
+      downloadConsumed = false;
+
       if (!downloadUrl) {
         throw new Error("The backend returned an invalid download URL.");
       }
@@ -496,6 +510,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // ================================================
 
       successFileDetails.textContent = `${outputFilename} · ${formatBytes(result.size)}`;
+
+      // Make sure the button is available.
+      if (btnDownloadResult) {
+        btnDownloadResult.textContent = "Download";
+      }
 
       setDownloadEnabled(true);
 
@@ -518,27 +537,76 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ==========================================================
-  // DOWNLOAD
+  // DOWNLOAD — ONE-TIME DOWNLOAD
   // ==========================================================
 
   btnDownloadResult?.addEventListener("click", () => {
+    // --------------------------------------------------------
+    // No download URL exists
+    // --------------------------------------------------------
+
     if (!downloadUrl) {
       showError("No converted file is available.");
       return;
     }
 
+    // --------------------------------------------------------
+    // Download already consumed
+    // --------------------------------------------------------
+
+    if (downloadConsumed) {
+      console.warn("Download blocked: file has already been downloaded.");
+
+      announce(
+        "This file has already been downloaded and is no longer available.",
+      );
+
+      return;
+    }
+
+    // --------------------------------------------------------
+    // Consume the download
+    // --------------------------------------------------------
+
     console.log("Downloading:", outputFilename);
 
     /*
-     * The browser now talks directly to
-     * FastAPI's download endpoint.
+     * IMPORTANT:
      *
-     * FastAPI handles the actual file.
+     * Mark the download as consumed BEFORE navigating.
+     *
+     * This prevents double-clicks or repeated frontend
+     * attempts from initiating another download.
+     */
+
+    downloadConsumed = true;
+
+    // --------------------------------------------------------
+    // Disable download button immediately
+    // --------------------------------------------------------
+
+    setDownloadEnabled(false);
+
+    if (btnDownloadResult) {
+      btnDownloadResult.textContent = "Downloaded";
+    }
+
+    announce(`Downloading ${outputFilename}.`);
+
+    /*
+     * The browser now talks directly to FastAPI's
+     * download endpoint.
+     *
+     * FastAPI is responsible for:
+     *
+     * 1. Serving the converted file.
+     * 2. Removing/deleting the file after the download.
+     *
+     * The frontend is responsible for preventing
+     * additional download attempts through the UI.
      */
 
     window.location.href = downloadUrl;
-
-    announce(`Downloading ${outputFilename}.`);
   });
 
   // ==========================================================
@@ -553,6 +621,9 @@ document.addEventListener("DOMContentLoaded", () => {
     currentFile = null;
     downloadUrl = null;
     outputFilename = null;
+
+    // Reset one-time download state.
+    downloadConsumed = false;
 
     fileInput.value = "";
 
@@ -569,6 +640,11 @@ document.addEventListener("DOMContentLoaded", () => {
     Array.from(targetFormatSelect.options).forEach((option) => {
       option.disabled = false;
     });
+
+    // Restore download button.
+    if (btnDownloadResult) {
+      btnDownloadResult.textContent = "Download";
+    }
 
     setDownloadEnabled(false);
 
@@ -598,8 +674,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // INITIAL STATE
   // ==========================================================
 
+  downloadConsumed = false;
+
   setDownloadEnabled(false);
+
   setProgress(0);
+
   showState("empty");
 });
 
