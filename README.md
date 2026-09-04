@@ -61,7 +61,7 @@ The DocSwitch conversion process follows these steps:
 
 ## Project Structure & Architecture
 
-<img src="images/docswitch.png" alt="DocSwitch Screenshot" width="100%">
+<img src="DocSwitch Architecture.jfif" alt="DocSwitch Screenshot" width="100%">
 
 ```text
 DocSwitch/
