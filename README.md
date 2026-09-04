@@ -14,8 +14,6 @@ The application provides a simple workflow where users can upload a document, se
 
 - Upload documents through a web interface
 - Convert supported documents between different formats
-- DOCX to PDF conversion
-- PDF to DOCX conversion
 - File validation
 - Error handling and user feedback
 - Download converted documents
