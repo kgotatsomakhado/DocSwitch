@@ -15,6 +15,7 @@ The application provides a simple workflow where users can upload a document, se
 - Upload documents through a web interface
 - Convert supported documents between different formats
 - File validation
+- Supports PDF, DOCX, DOC, TXT, RTF, PPTX, PPT, JPG, JPEG, PNG and WEBP inputs with PDF and DOCX outputs.
 - Error handling and user feedback
 - Download converted documents
 - Responsive and user friendly interface
