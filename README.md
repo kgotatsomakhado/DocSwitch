@@ -59,7 +59,9 @@ The DocSwitch conversion process follows these steps:
 - GitHub
 - Visual Studio Code
 
-## Project Structure
+## Project Structure & Architecture
+
+<img src="images/docswitch.png" alt="DocSwitch Screenshot" width="100%">
 
 ```text
 DocSwitch/
@@ -80,3 +82,5 @@ DocSwitch/
 │
 ├── README.md
 └── LICENSE
+
+
