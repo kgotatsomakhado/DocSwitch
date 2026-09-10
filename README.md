@@ -7,6 +7,7 @@ The project was developed as part of the App Development 2 final summative asses
 ## About the Project
 
 Document conversion is a common task for students, businesses and professionals. DocSwitch was created to provide a simple and convenient way for users to convert documents without needing to install complicated desktop software.
+
 The application provides a simple workflow where users can upload a document, select the required output format, convert the document and download the converted file.
 
 ## Features
