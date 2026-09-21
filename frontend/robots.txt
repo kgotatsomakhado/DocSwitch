@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://docswitch.cloudsurfing.workers.dev/sitemap.xml
