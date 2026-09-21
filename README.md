@@ -2,8 +2,6 @@
 
 DocSwitch is a web based document conversion application that allows users to quickly convert documents between supported file formats.
 
-The project was developed as part of the App Development 2 final summative assessment for the Occupational Certificate: Software Engineer.
-
 ## About the Project
 
 Document conversion is a common task for students, businesses and professionals. DocSwitch was created to provide a simple and convenient way for users to convert documents without needing to install complicated desktop software.
