@@ -1,4 +1,5 @@
 <!doctype html>
+
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -9,7 +10,7 @@
 
     <meta
       name="description"
-      content="DocSwitch is a simple online file converter for PDF, DOCX, DOC, TXT, RTF, PPTX, JPG, PNG and WEBP. Convert files without an account or unnecessary steps."
+      content="DocSwitch is a simple online file converter for PDF, DOCX, DOC, TXT, RTF, PPTX, PPT, JPG, PNG and WEBP. Convert files without an account or unnecessary steps."
     />
 
     <meta name="robots" content="index, follow" />
@@ -21,7 +22,7 @@
 
     <meta
       property="og:title"
-      content="DocSwitch — Simple Online File Conversion"
+      content="DocSwitch — Free Online File Converter"
     />
 
     <meta
@@ -41,12 +42,14 @@
       content="https://docswitch.cloudsurfing.workers.dev/assets/og-image.jpg"
     />
 
+    <meta property="og:image:alt" content="DocSwitch online file converter" />
+
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image" />
 
     <meta
       name="twitter:title"
-      content="DocSwitch — Simple Online File Conversion"
+      content="DocSwitch — Free Online File Converter"
     />
 
     <meta
@@ -58,6 +61,8 @@
       name="twitter:image"
       content="https://docswitch.cloudsurfing.workers.dev/assets/og-image.jpg"
     />
+
+    <meta name="twitter:image:alt" content="DocSwitch online file converter" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -73,7 +78,7 @@
 
     <link rel="icon" type="image/jpeg" href="assets/favicon.jpg" />
 
-    <!-- Structured Data -->
+    <!-- Structured Data: WebApplication -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -82,16 +87,30 @@
         "url": "https://docswitch.cloudsurfing.workers.dev/",
         "description": "A simple online file conversion tool for converting documents, presentations and images.",
         "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web"
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires a modern web browser with JavaScript enabled."
       }
     </script>
+
+    <!-- Structured Data: WebSite -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "DocSwitch",
+        "url": "https://docswitch.cloudsurfing.workers.dev/",
+        "description": "Free online file conversion for documents, presentations and images."
+      }
+    </script>
+    ```
   </head>
 
   <body>
     <!-- ============================================================
-     DOCSWITCH — ANIMATED ATMOSPHERIC BACKGROUND
-     ============================================================ -->
+         DOCSWITCH — ANIMATED ATMOSPHERIC BACKGROUND
+         ============================================================ -->
 
+    ```
     <div class="ambient-background" aria-hidden="true">
       <canvas id="ambient-canvas"></canvas>
 
@@ -100,17 +119,18 @@
 
       <div class="ambient-vignette"></div>
     </div>
-    <!-- Atmospheric background -->
-    <div class="bg-glow bg-glow-1"></div>
-    <div class="bg-glow bg-glow-2"></div>
-    <div class="bg-glow bg-glow-3"></div>
+
+    <div class="bg-glow bg-glow-1" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow-2" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow-3" aria-hidden="true"></div>
 
     <!-- ==========================================================
-       NAVIGATION
-       ========================================================== -->
+     NAVIGATION
+     ========================================================== -->
+
     <header class="navbar">
       <div class="nav-container">
-        <a href="#" class="brand" aria-label="DocSwitch home">
+        <a href="/" class="brand" aria-label="DocSwitch home">
           <svg
             class="brand-icon"
             width="24"
@@ -136,27 +156,38 @@
         </a>
 
         <nav class="nav-links" aria-label="Main navigation">
-          <a href="#how-it-works" class="nav-link">How it works</a>
-          <a href="#formats" class="nav-link">Formats</a>
-          <a href="#why-docswitch" class="nav-link">Why DocSwitch</a>
+          <a href="#how-it-works" class="nav-link"> How it works </a>
+
+          <a href="#formats" class="nav-link"> Formats </a>
+
+          <a href="#why-docswitch" class="nav-link"> Why DocSwitch </a>
         </nav>
 
-        <a href="#converter" class="nav-convert">Convert <span>↗</span></a>
+        <a
+          href="#converter"
+          class="nav-convert"
+          aria-label="Go to the DocSwitch file converter"
+        >
+          Convert
+          <span aria-hidden="true">↗</span>
+        </a>
       </div>
     </header>
 
     <main>
       <!-- ==========================================================
-         HERO
-         ========================================================== -->
-      <section class="hero-section">
+       HERO
+       ========================================================== -->
+
+      <section class="hero-section" aria-labelledby="hero-title">
         <div class="eyebrow">
-          <span class="eyebrow-dot"></span>
+          <span class="eyebrow-dot" aria-hidden="true"></span>
+
           SIMPLE FILE CONVERSION
         </div>
 
-        <h1 class="hero-title">
-          Convert your file to docx or pdf,<br />
+        <h1 class="hero-title" id="hero-title">
+          Convert files to PDF or DOCX,<br />
           <span>without the complexity.</span>
         </h1>
 
@@ -166,17 +197,24 @@
         </p>
 
         <!-- ========================================================
-           CONVERTER
-           ======================================================== -->
-        <div class="converter-card" id="converter">
+         CONVERTER
+         ======================================================== -->
+
+        <section
+          class="converter-card"
+          id="converter"
+          aria-label="File converter"
+        >
           <!-- EMPTY -->
+
           <div class="ui-state active" id="state-empty">
             <div
               class="drop-zone"
               id="drop-zone"
               tabindex="0"
               role="button"
-              aria-label="Upload a file"
+              aria-label="Upload a file for conversion"
+              aria-describedby="supported-formats-summary"
             >
               <div class="drop-zone-icon-wrapper">
                 <svg
@@ -193,6 +231,7 @@
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   />
+
                   <path
                     d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"
                     stroke="currentColor"
@@ -207,13 +246,23 @@
 
                 <span class="secondary-text">
                   or
-                  <button type="button" class="link-btn" id="browse-trigger">
+
+                  <button
+                    type="button"
+                    class="link-btn"
+                    id="browse-trigger"
+                    aria-label="Browse your device for a file"
+                  >
                     browse your device
                   </button>
                 </span>
               </div>
 
-              <div class="supported-badges">
+              <div
+                class="supported-badges"
+                id="supported-formats-summary"
+                aria-label="Supported input formats"
+              >
                 <span class="badge">PDF</span>
                 <span class="badge">DOCX</span>
                 <span class="badge">TXT</span>
@@ -227,22 +276,18 @@
           </div>
 
           <!-- SELECTED -->
-          <div class="ui-state" id="state-selected">
+
+          <div class="ui-state" id="state-selected" aria-live="polite">
             <div class="file-card">
               <div class="file-info">
-                <div class="file-icon-box">
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden="true"
-                  >
+                <div class="file-icon-box" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                     <path
                       d="M6 3h8l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
                       stroke="currentColor"
                       stroke-width="1.8"
                     />
+
                     <path
                       d="M14 3v5h5"
                       stroke="currentColor"
@@ -289,7 +334,11 @@
                   </label>
 
                   <div class="custom-select-wrapper">
-                    <select class="custom-select" id="target-format-select">
+                    <select
+                      class="custom-select"
+                      id="target-format-select"
+                      aria-label="Choose the output file format"
+                    >
                       <option value="pdf">PDF</option>
                       <option value="docx">DOCX</option>
                     </select>
@@ -319,16 +368,22 @@
                   type="button"
                 >
                   Convert file
-                  <span>→</span>
+                  <span aria-hidden="true">→</span>
                 </button>
               </div>
             </div>
           </div>
 
           <!-- CONVERTING -->
-          <div class="ui-state" id="state-converting">
+
+          <div
+            class="ui-state"
+            id="state-converting"
+            aria-live="polite"
+            aria-busy="true"
+          >
             <div class="status-card">
-              <div class="spinner-wrapper">
+              <div class="spinner-wrapper" aria-hidden="true">
                 <div class="pulse-spinner"></div>
               </div>
 
@@ -340,7 +395,14 @@
                 </p>
               </div>
 
-              <div class="progress-bar-container">
+              <div
+                class="progress-bar-container"
+                role="progressbar"
+                aria-label="File conversion progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+              >
                 <div
                   class="progress-bar-fill"
                   id="conversion-progress-bar"
@@ -350,16 +412,11 @@
           </div>
 
           <!-- SUCCESS -->
-          <div class="ui-state" id="state-success">
+
+          <div class="ui-state" id="state-success" aria-live="polite">
             <div class="status-card">
-              <div class="success-icon-wrapper">
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
+              <div class="success-icon-wrapper" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                   <path
                     d="m5 12 4 4L19 6"
                     stroke="currentColor"
@@ -385,10 +442,12 @@
                   type="button"
                   disabled
                   aria-disabled="true"
+                  aria-label="Download converted file"
                 >
                   Download file
-                  <span>↓</span>
+                  <span aria-hidden="true">↓</span>
                 </button>
+
                 <button
                   class="btn-tertiary"
                   id="btn-reset-converter"
@@ -401,22 +460,18 @@
           </div>
 
           <!-- ERROR -->
-          <div class="ui-state" id="state-error">
+
+          <div class="ui-state" id="state-error" aria-live="assertive">
             <div class="status-card">
-              <div class="error-icon-wrapper">
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
+              <div class="error-icon-wrapper" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
                   <path
                     d="M12 8v5M12 17h.01"
                     stroke="currentColor"
                     stroke-width="2"
                     stroke-linecap="round"
                   />
+
                   <circle
                     cx="12"
                     cy="12"
@@ -442,9 +497,9 @@
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="security-note" id="security">
+        <div class="security-note" id="security" role="note">
           <svg
             width="14"
             height="14"
@@ -470,19 +525,30 @@
           id="file-input"
           class="visually-hidden"
           accept=".pdf,.docx,.doc,.txt,.rtf,.pptx,.ppt,.jpg,.jpeg,.png,.webp"
+          aria-label="Choose a file to convert"
         />
 
-        <div id="live-region" class="visually-hidden" aria-live="polite"></div>
+        <div
+          id="live-region"
+          class="visually-hidden"
+          aria-live="polite"
+          aria-atomic="true"
+        ></div>
       </section>
 
       <!-- ==========================================================
-         HOW IT WORKS
-         ========================================================== -->
-      <section class="editorial-section process-section" id="how-it-works">
+       HOW IT WORKS
+       ========================================================== -->
+
+      <section
+        class="editorial-section process-section"
+        id="how-it-works"
+        aria-labelledby="how-it-works-title"
+      >
         <div class="section-intro">
           <span class="section-kicker"> HOW IT WORKS </span>
 
-          <h2>
+          <h2 id="how-it-works-title">
             Three steps.<br />
             <span>No complexity.</span>
           </h2>
@@ -493,13 +559,13 @@
         </div>
 
         <div class="process-timeline">
-          <div class="process-line"></div>
+          <div class="process-line" aria-hidden="true"></div>
 
           <article class="process-step">
-            <div class="process-number">01</div>
+            <div class="process-number" aria-hidden="true">01</div>
 
             <div class="process-copy">
-              <h3>Upload</h3>
+              <h3>Upload your file</h3>
 
               <p>
                 Drop your file into DocSwitch or browse your device. We support
@@ -507,14 +573,14 @@
               </p>
             </div>
 
-            <div class="process-arrow">↘</div>
+            <div class="process-arrow" aria-hidden="true">↘</div>
           </article>
 
           <article class="process-step">
-            <div class="process-number">02</div>
+            <div class="process-number" aria-hidden="true">02</div>
 
             <div class="process-copy">
-              <h3>Choose</h3>
+              <h3>Choose your format</h3>
 
               <p>
                 Select the format you want your file converted to. No
@@ -522,14 +588,14 @@
               </p>
             </div>
 
-            <div class="process-arrow">↘</div>
+            <div class="process-arrow" aria-hidden="true">↘</div>
           </article>
 
           <article class="process-step">
-            <div class="process-number">03</div>
+            <div class="process-number" aria-hidden="true">03</div>
 
             <div class="process-copy">
-              <h3>Download</h3>
+              <h3>Download your file</h3>
 
               <p>
                 Your converted file is ready. Download it and get back to what
@@ -537,90 +603,110 @@
               </p>
             </div>
 
-            <div class="process-arrow final-arrow">↗</div>
+            <div class="process-arrow final-arrow" aria-hidden="true">↗</div>
           </article>
         </div>
       </section>
 
       <!-- ==========================================================
-         FORMATS
-         ========================================================== -->
-      <section class="editorial-section formats-section" id="formats">
+       FORMATS
+       ========================================================== -->
+
+      <section
+        class="editorial-section formats-section"
+        id="formats"
+        aria-labelledby="formats-title"
+      >
         <div class="formats-heading-row">
           <div>
             <span class="section-kicker"> SUPPORTED FORMATS </span>
 
-            <h2>
+            <h2 id="formats-title">
               Built for the files<br />
               <span>you actually use.</span>
             </h2>
           </div>
 
           <p>
-            Start with the formats you work with every day. More can be added as
-            DocSwitch evolves.
+            DocSwitch supports PDF, DOCX, DOC, TXT, RTF, PPTX, PPT, JPG, JPEG,
+            PNG and WEBP files for supported conversions to PDF or DOCX.
           </p>
         </div>
 
-        <!-- ============================================================
-     DOCSWITCH FORMAT MARQUEE
-     ============================================================ -->
+        <!-- ========================================================
+         DOCSWITCH FORMAT MARQUEE
+         ======================================================== -->
 
-        <section class="format-marquee" aria-label="Supported file formats">
+        <div class="format-marquee" aria-label="Supported file formats">
           <!-- Row 1 -->
+
           <div class="format-row">
             <div class="format-track" data-direction="left">
               <div class="format-set">
                 <span>PDF</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>DOCX</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>DOC</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>TXT</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>RTF</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
               </div>
             </div>
           </div>
 
           <!-- Row 2 -->
+
           <div class="format-row">
             <div class="format-track" data-direction="right">
               <div class="format-set">
                 <span>PPTX</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>PPT</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>JPG</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>PNG</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
+
                 <span>WEBP</span>
-                <i>•</i>
+                <i aria-hidden="true">•</i>
               </div>
             </div>
           </div>
-        </section>
+        </div>
       </section>
 
       <!-- ==========================================================
-         WHY DOCSWITCH
-         ========================================================== -->
-      <section class="editorial-section why-section" id="why-docswitch">
+       WHY DOCSWITCH
+       ========================================================== -->
+
+      <section
+        class="editorial-section why-section"
+        id="why-docswitch"
+        aria-labelledby="why-docswitch-title"
+      >
         <div class="why-header">
           <span class="section-kicker"> WHY DOCSWITCH </span>
 
-          <h2>
+          <h2 id="why-docswitch-title">
             Less friction.<br />
             <span>More getting things done.</span>
           </h2>
         </div>
 
         <div class="feature-list">
-          <div class="feature-row">
-            <span class="feature-index">01</span>
+          <article class="feature-row">
+            <span class="feature-index" aria-hidden="true"> 01 </span>
 
             <div class="feature-title">NO ACCOUNT</div>
 
@@ -628,18 +714,18 @@
               Convert files without creating another account or remembering
               another password.
             </p>
-          </div>
+          </article>
 
-          <div class="feature-row">
-            <span class="feature-index">02</span>
+          <article class="feature-row">
+            <span class="feature-index" aria-hidden="true"> 02 </span>
 
             <div class="feature-title">SIMPLE BY DESIGN</div>
 
             <p>No dashboards. No clutter. Just upload, choose and download.</p>
-          </div>
+          </article>
 
-          <div class="feature-row">
-            <span class="feature-index">03</span>
+          <article class="feature-row">
+            <span class="feature-index" aria-hidden="true"> 03 </span>
 
             <div class="feature-title">PRIVACY FIRST</div>
 
@@ -647,10 +733,10 @@
               Your files are processed for conversion and designed to be
               automatically removed afterwards.
             </p>
-          </div>
+          </article>
 
-          <div class="feature-row">
-            <span class="feature-index">04</span>
+          <article class="feature-row">
+            <span class="feature-index" aria-hidden="true"> 04 </span>
 
             <div class="feature-title">FAST WORKFLOW</div>
 
@@ -658,18 +744,23 @@
               Everything is built around getting you from source file to
               finished file with minimal friction.
             </p>
-          </div>
+          </article>
         </div>
       </section>
 
       <!-- ==========================================================
-         FAQ
-         ========================================================== -->
-      <section class="editorial-section faq-section" id="faq">
+       FAQ
+       ========================================================== -->
+
+      <section
+        class="editorial-section faq-section"
+        id="faq"
+        aria-labelledby="faq-title"
+      >
         <div class="faq-heading">
           <span class="section-kicker"> QUESTIONS </span>
 
-          <h2>
+          <h2 id="faq-title">
             Before you<br />
             <span>convert.</span>
           </h2>
@@ -678,20 +769,23 @@
         <div class="faq-list">
           <details class="faq-item">
             <summary>
-              <span>What file types can I convert?</span>
-              <span class="faq-plus">+</span>
+              <span> What file types can I convert? </span>
+
+              <span class="faq-plus" aria-hidden="true"> + </span>
             </summary>
 
             <p>
               DocSwitch currently supports PDF, DOCX, DOC, TXT, RTF, PPTX, PPT,
-              JPG, JPEG, PNG and WEBP as input formats.
+              JPG, JPEG, PNG and WEBP as input formats. Available output formats
+              are PDF and DOCX.
             </p>
           </details>
 
           <details class="faq-item">
             <summary>
-              <span>Is there a file size limit?</span>
-              <span class="faq-plus">+</span>
+              <span> Is there a file size limit? </span>
+
+              <span class="faq-plus" aria-hidden="true"> + </span>
             </summary>
 
             <p>Files are currently limited to 25 MB per conversion.</p>
@@ -699,8 +793,9 @@
 
           <details class="faq-item">
             <summary>
-              <span>Do I need an account?</span>
-              <span class="faq-plus">+</span>
+              <span> Do I need an account? </span>
+
+              <span class="faq-plus" aria-hidden="true"> + </span>
             </summary>
 
             <p>
@@ -711,8 +806,9 @@
 
           <details class="faq-item">
             <summary>
-              <span>What happens to my files?</span>
-              <span class="faq-plus">+</span>
+              <span> What happens to my files? </span>
+
+              <span class="faq-plus" aria-hidden="true"> + </span>
             </summary>
 
             <p>
@@ -724,31 +820,37 @@
       </section>
 
       <!-- ==========================================================
-         FINAL CTA
-         ========================================================== -->
-      <section class="final-cta">
+       FINAL CTA
+       ========================================================== -->
+
+      <section class="final-cta" aria-labelledby="cta-title">
         <div class="cta-kicker">READY WHEN YOU ARE</div>
 
-        <h2>
+        <h2 id="cta-title">
           Convert your next<br />
           file in seconds.
         </h2>
 
-        <a href="#converter" class="btn-primary cta-button">
+        <a
+          href="#converter"
+          class="btn-primary cta-button"
+          aria-label="Start converting a file"
+        >
           Convert a file
-          <span>↑</span>
+          <span aria-hidden="true">↑</span>
         </a>
       </section>
     </main>
 
     <!-- ==========================================================
-       FOOTER
-       ========================================================== -->
+     FOOTER
+     ========================================================== -->
+
     <footer class="site-footer">
       <div class="footer-inner">
         <div class="footer-top">
           <div class="footer-brand">
-            <a href="#" class="brand footer-logo">
+            <a href="/" class="brand footer-logo" aria-label="DocSwitch home">
               <svg
                 class="brand-icon"
                 width="25"
@@ -762,6 +864,7 @@
                   stroke="currentColor"
                   stroke-width="1.8"
                 />
+
                 <path
                   d="M14 3v5h5M9 13h6M9 17h6"
                   stroke="currentColor"
@@ -780,29 +883,36 @@
             <div class="footer-column">
               <span class="footer-column-title"> PRODUCT </span>
 
-              <a href="#converter">Converter</a>
-              <a href="#how-it-works">How it works</a>
-              <a href="#formats">Formats</a>
+              <a href="#converter"> Converter </a>
+
+              <a href="#how-it-works"> How it works </a>
+
+              <a href="#formats"> Formats </a>
             </div>
 
             <div class="footer-column">
               <span class="footer-column-title"> COMPANY </span>
 
-              <a href="#why-docswitch">Why DocSwitch</a>
-              <a href="#">Privacy</a>
-              <a href="#">Terms</a>
+              <a href="#why-docswitch"> Why DocSwitch </a>
+
+              <a href="#security"> Privacy </a>
+
+              <a href="#faq"> Terms </a>
             </div>
 
             <div class="footer-column">
               <span class="footer-column-title"> SUPPORT </span>
 
-              <a href="#faq">FAQ</a>
-              <a href="mailto:support@docswitch.com">Contact</a>
+              <a href="#faq"> FAQ </a>
+
+              <a href="mailto:support@docswitch.com"> Contact </a>
             </div>
           </div>
         </div>
 
-        <div class="footer-wordmark">DOC<span>SWITCH</span></div>
+        <div class="footer-wordmark" aria-hidden="true">
+          DOC<span>SWITCH</span>
+        </div>
 
         <div class="footer-bottom">
           <p>© 2026 DocSwitch. All rights reserved.</p>
